@@ -29,26 +29,50 @@ from simulator import Simulator
 from visualizer import Visualizer
 from report_generator import ReportGenerator
 from config import Config
+from rviz_integration import RVizWidget, GazeboWidget
 
 
 class RosThread(QThread):
     """Background thread for ROS operations"""
     status_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
-    
+    topic_data_signal = pyqtSignal(str, object, object)  # topic, message, timestamp
+    playback_progress_signal = pyqtSignal(dict)  # progress info
+
     def __init__(self):
         super().__init__()
         self.running = False
-        
+        self.ros_initialized = False
+        self.bag_player = None
+
+    def set_bag_player(self, bag_player):
+        """Set the bag player reference"""
+        self.bag_player = bag_player
+
     def run(self):
         """Execute ROS operations in background"""
         self.running = True
-        self.status_signal.emit("ROS Thread: Initialized")
-        
+
+        # Try to initialize ROS
+        try:
+            import rospy
+            if not rospy.core.is_initialized():
+                rospy.init_node('av_simulator_gui', anonymous=True, disable_signals=True)
+            self.ros_initialized = True
+            self.status_signal.emit("ROS Thread: Connected to ROS Master")
+        except Exception as e:
+            self.ros_initialized = False
+            self.status_signal.emit(f"ROS Thread: Running without ROS connection ({str(e)})")
+
+        # Monitoring loop
         while self.running:
-            # Simulate ROS monitoring
+            # Update playback progress if playing
+            if self.bag_player and self.bag_player.is_playing:
+                progress = self.bag_player.get_playback_progress()
+                self.playback_progress_signal.emit(progress)
+
             self.msleep(100)
-            
+
     def stop(self):
         """Stop the thread"""
         self.running = False
@@ -56,18 +80,22 @@ class RosThread(QThread):
 
 class MainWindow(QMainWindow):
     """Main application window"""
-    
+
+    # Define signals for thread-safe communication
+    status_update_signal = pyqtSignal(str)
+    message_received_signal = pyqtSignal(str, object, object)  # topic, msg, timestamp
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AV Simulator - Autonomous Vehicle Simulation and Vulnerability Analyzer")
         self.setGeometry(100, 100, 1400, 900)
-        
+
         # Initialize data structures
         self.dfs = {}  # Dictionary to store loaded DataFrames
         self.current_bag_path = None
         self.current_csv_dir = None
         self.simulation_running = False
-        
+
         # Initialize components
         self.config = Config()
         self.bag_player = BagPlayer()
@@ -76,13 +104,24 @@ class MainWindow(QMainWindow):
         self.simulator = Simulator()
         self.visualizer = Visualizer()
         self.report_generator = ReportGenerator()
-        
+
         # Start ROS thread
         self.ros_thread = RosThread()
+        self.ros_thread.set_bag_player(self.bag_player)
         self.ros_thread.status_signal.connect(self.update_status)
         self.ros_thread.error_signal.connect(self.show_error)
+        self.ros_thread.topic_data_signal.connect(self.update_topic_data)
+        self.ros_thread.playback_progress_signal.connect(self.update_playback_progress)
         self.ros_thread.start()
-        
+
+        # Connect our internal signals for thread-safe widget updates
+        self.status_update_signal.connect(self.update_status)
+        self.message_received_signal.connect(self.on_bag_message_main_thread)
+
+        # Connect bag player callbacks using thread-safe wrappers
+        self.bag_player.status_callback = self._thread_safe_status_callback
+        self.bag_player.message_callback = self._thread_safe_message_callback
+
         # Setup UI
         self.init_ui()
         
@@ -264,27 +303,43 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.speed_combo)
         
         layout.addLayout(controls_layout)
-        
-        # Simulation viewport
-        viewport_group = QGroupBox("3D Simulation Viewport")
-        viewport_layout = QVBoxLayout()
-        
-        self.simulation_canvas = QLabel("Gazebo View: Vehicle Simulation Active")
-        self.simulation_canvas.setStyleSheet("""
+
+        # Visualization selection tabs
+        viz_tabs = QTabWidget()
+
+        # RViz viewport tab
+        self.rviz_widget = RVizWidget(parent=self)
+        self.rviz_widget.status_callback = self.update_status
+        viz_tabs.addTab(self.rviz_widget, "RViz Visualization")
+
+        # Gazebo viewport tab
+        self.gazebo_widget = GazeboWidget(parent=self)
+        self.gazebo_widget.status_callback = self.update_status
+        viz_tabs.addTab(self.gazebo_widget, "Gazebo Simulation")
+
+        # Viewport info overlay
+        info_widget = QWidget()
+        info_layout = QVBoxLayout()
+        info_layout.addWidget(viz_tabs)
+
+        self.vehicle_info_label = QLabel("Playback Time: 0.0s / 0.0s\nSpeed: 1.0x | Progress: 0.0%")
+        self.vehicle_info_label.setStyleSheet("""
             QLabel {
-                background-color: #2C3E50;
-                color: #95A5A6;
-                padding: 100px;
-                text-align: center;
+                background-color: rgba(44, 62, 80, 0.9);
+                color: white;
+                padding: 8px;
+                font-size: 10pt;
+                border-radius: 5px;
+                font-weight: bold;
             }
         """)
-        self.simulation_canvas.setAlignment(Qt.AlignCenter)
-        
-        self.vehicle_info_label = QLabel("Vehicle Position: X: 125.3, Y: -45.2, Z: 0.8\nVelocity: 2.3 m/s | Heading: 47°")
-        self.vehicle_info_label.setStyleSheet("background-color: rgba(0,0,0,0.7); color: white; padding: 5px;")
-        
-        viewport_layout.addWidget(self.simulation_canvas)
-        viewport_layout.addWidget(self.vehicle_info_label)
+        info_layout.addWidget(self.vehicle_info_label)
+
+        info_widget.setLayout(info_layout)
+
+        viewport_group = QGroupBox("3D Simulation Viewport")
+        viewport_layout = QVBoxLayout()
+        viewport_layout.addWidget(info_widget)
         
         viewport_group.setLayout(viewport_layout)
         layout.addWidget(viewport_group)
@@ -528,50 +583,112 @@ class MainWindow(QMainWindow):
         if file_path:
             self.current_bag_path = file_path
             file_name = os.path.basename(file_path)
-            file_size = os.path.getsize(file_path) / (1024**3)  # Convert to GB
-            
-            self.loaded_file_info.setText(f"Loaded: {file_name} ({file_size:.2f} GB)")
+            file_size = os.path.getsize(file_path) / (1024**2)  # Convert to MB
+
             self.log_console.append(f"[{self.get_timestamp()}] Loading bag file: {file_name}")
-            self.log_console.append(f"[{self.get_timestamp()}] Bag file loaded successfully")
-            self.log_console.append(f"[{self.get_timestamp()}] Topics found: /cmd_vel, /imu/data, /navsat/fix")
-            
-            self.btn_start_sim.setEnabled(True)
-            self.sim_status_label.setText("Status: Bag Loaded")
-            
-            # Export to CSV
+
+            # Get real bag info
             try:
-                output_dir = self.bag_player.export_bag_to_csv(file_path, "/home/claude/csv_output")
-                self.current_csv_dir = output_dir
-                self.log_console.append(f"[{self.get_timestamp()}] CSV files exported to {output_dir}")
+                bag_info = self.bag_player.get_bag_info(file_path)
+
+                if 'error' in bag_info:
+                    self.show_error(f"Error reading bag file: {bag_info['error']}")
+                    return
+
+                # Display bag information
+                duration = bag_info.get('duration', 0)
+                message_count = bag_info.get('message_count', 0)
+                topics = bag_info.get('topics', {})
+
+                self.loaded_file_info.setText(
+                    f"Loaded: {file_name} ({file_size:.2f} MB)\n"
+                    f"Duration: {duration:.2f}s | Messages: {message_count}"
+                )
+                self.log_console.append(f"[{self.get_timestamp()}] Bag file loaded successfully")
+                self.log_console.append(f"[{self.get_timestamp()}] Duration: {duration:.2f} seconds")
+                self.log_console.append(f"[{self.get_timestamp()}] Total messages: {message_count}")
+
+                # List topics
+                if topics:
+                    topic_names = ', '.join(list(topics.keys())[:5])  # Show first 5 topics
+                    self.log_console.append(f"[{self.get_timestamp()}] Topics found: {topic_names}")
+
+                    # Update topic combo box in injection tab
+                    self.inject_topic_combo.clear()
+                    self.inject_topic_combo.addItems(list(topics.keys()))
+
+                self.btn_start_sim.setEnabled(True)
+                self.sim_status_label.setText("Status: Bag Loaded")
+
+                # Export to CSV
+                csv_dir = os.path.join(os.path.dirname(file_path), "csv_output")
+                self.log_console.append(f"[{self.get_timestamp()}] Exporting bag to CSV...")
+                exported = self.bag_player.export_bag_to_csv(file_path, csv_dir)
+
+                if 'error' not in exported:
+                    self.current_csv_dir = csv_dir
+                    self.log_console.append(f"[{self.get_timestamp()}] Exported {len(exported)} topics to CSV")
+                else:
+                    self.log_console.append(f"[{self.get_timestamp()}] Warning: CSV export failed")
+
             except Exception as e:
-                self.show_error(f"Error exporting bag to CSV: {str(e)}")
+                self.show_error(f"Error loading bag file: {str(e)}")
     
     def start_simulation(self):
-        """Start the simulation"""
+        """Start the simulation with real ROS bag playback"""
         if not self.current_bag_path:
             QMessageBox.warning(self, "No File", "Please load a .bag file first.")
             return
-            
+
         self.simulation_running = True
         self.sim_status_label.setText("Status: Simulation Running")
         self.log_console.append(f"[{self.get_timestamp()}] Starting simulation...")
         self.tabs.setCurrentIndex(1)  # Switch to simulation tab
-        
-        # Simulate playback
-        QTimer.singleShot(1000, lambda: self.log_console.append(f"[{self.get_timestamp()}] Playback started"))
-        
+
+        # Auto-launch RViz if not already running
+        if not self.rviz_widget.is_running():
+            self.log_console.append(f"[{self.get_timestamp()}] Auto-launching RViz...")
+            self.rviz_widget.launch_rviz()
+
+        # Get playback speed
+        speed_text = self.speed_combo.currentText()
+        speed = float(speed_text.replace('x', ''))
+
+        # Start real bag playback with republishing
+        try:
+            success = self.bag_player.play_bag(
+                self.current_bag_path,
+                rate=speed,
+                start_time=None,
+                republish=True
+            )
+            if success:
+                self.log_console.append(f"[{self.get_timestamp()}] Bag playback started at {speed}x speed")
+                self.log_console.append(f"[{self.get_timestamp()}] Publishing topics to ROS master...")
+                self.log_console.append(f"[{self.get_timestamp()}] Topics should now be visible in RViz")
+            else:
+                self.log_console.append(f"[{self.get_timestamp()}] Failed to start playback")
+        except Exception as e:
+            self.show_error(f"Failed to start simulation: {str(e)}")
+
     def play_simulation(self):
         """Play/resume simulation"""
-        self.log_console.append(f"[{self.get_timestamp()}] Simulation playing")
-        self.progress_bar.setValue(45)
-        
+        if self.bag_player.is_paused:
+            self.bag_player.resume()
+            self.log_console.append(f"[{self.get_timestamp()}] Simulation resumed")
+        else:
+            self.start_simulation()
+
     def pause_simulation(self):
         """Pause simulation"""
-        self.log_console.append(f"[{self.get_timestamp()}] Simulation paused")
-        
+        if self.bag_player.is_playing:
+            self.bag_player.pause()
+            self.log_console.append(f"[{self.get_timestamp()}] Simulation paused")
+
     def stop_simulation(self):
         """Stop simulation"""
         self.simulation_running = False
+        self.bag_player.stop()
         self.log_console.append(f"[{self.get_timestamp()}] Simulation stopped")
         self.progress_bar.setValue(0)
         
@@ -619,37 +736,69 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(3)
         
     def execute_injection(self):
-        """Execute anomaly injection"""
+        """Execute anomaly injection with real bag modification"""
         if not self.current_bag_path:
             QMessageBox.warning(self, "No File", "Please load a .bag file first.")
             return
-            
+
         topic = self.inject_topic_combo.currentText()
         mod_type = self.inject_mod_combo.currentText()
-        value = self.inject_value_input.text()
-        
+        value_str = self.inject_value_input.text()
+
         self.log_console.append(f"[{self.get_timestamp()}] Injecting anomaly into {topic}")
         self.log_console.append(f"[{self.get_timestamp()}] Modification: {mod_type}")
-        
+
         try:
+            # Parse value if provided
+            params = {}
+            if value_str:
+                try:
+                    params['std'] = float(value_str)  # For noise
+                    params['factor'] = float(value_str)  # For scale
+                except ValueError:
+                    pass
+
             # Create modified bag
             output_path = self.current_bag_path.replace(".bag", "_modified.bag")
+
+            # Convert UI text to anomaly type
+            anomaly_map = {
+                'Zero Velocity': 'zero_vel',
+                'Add Noise': 'noise',
+                'GPS Spoof': 'spoof_gps',
+                'Packet Drop': 'drop_packets',
+                'Data Corruption': 'corruption',
+                'Stuck Sensor': 'stuck',
+                'Scale Values': 'scale'
+            }
+            anomaly_type = anomaly_map.get(mod_type, mod_type.lower().replace(" ", "_"))
+
             self.vulnerability_injector.inject_anomaly(
-                self.current_bag_path,
-                output_path,
-                mod_type.lower().replace(" ", "_"),
-                0.0
+                bag_path=self.current_bag_path,
+                output_bag_path=output_path,
+                topic=topic,
+                anomaly_type=anomaly_type,
+                start_time=None,  # From beginning
+                duration=None,    # Until end
+                **params
             )
-            
+
             self.log_console.append(f"[{self.get_timestamp()}] Modified bag created: {output_path}")
-            self.log_console.append(f"[{self.get_timestamp()}] Re-simulating with injected anomaly...")
-            
+            self.log_console.append(f"[{self.get_timestamp()}] Affected {len(self.vulnerability_injector.injection_log)} messages")
+
             # Update after text
-            self.after_text.setStyleSheet("QTextEdit { color: red; }")
-            
-            QMessageBox.information(self, "Injection Complete", 
-                                   "Anomaly injection completed. Check the 'After Injection' panel for results.")
-            
+            self.after_text.clear()
+            self.after_text.append(f"Modified bag file: {output_path}\n")
+            self.after_text.append(f"Anomaly type: {anomaly_type}\n")
+            self.after_text.append(f"Topic: {topic}\n")
+            self.after_text.append(f"Messages modified: {len(self.vulnerability_injector.injection_log)}\n")
+            self.after_text.setStyleSheet("QTextEdit { color: red; font-weight: bold; }")
+
+            QMessageBox.information(self, "Injection Complete",
+                                   f"Anomaly injection completed.\n"
+                                   f"Modified {len(self.vulnerability_injector.injection_log)} messages.\n"
+                                   f"Output: {output_path}")
+
         except Exception as e:
             self.show_error(f"Error during injection: {str(e)}")
         
@@ -719,11 +868,91 @@ class MainWindow(QMainWindow):
         """Get current timestamp string"""
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
+    def _thread_safe_status_callback(self, message):
+        """Thread-safe wrapper for status updates - emits signal instead of direct widget access"""
+        self.status_update_signal.emit(message)
+
+    def _thread_safe_message_callback(self, topic, msg, timestamp):
+        """Thread-safe wrapper for message callbacks - emits signal instead of direct widget access"""
+        self.message_received_signal.emit(topic, msg, timestamp)
+
+    def on_bag_message_main_thread(self, topic, msg, timestamp):
+        """Callback for bag messages during playback - runs in main thread"""
+        # Update topic logs with real data
+        try:
+            # Extract key fields from message
+            msg_str = self._format_message(topic, msg)
+            # Update the topic logs (limit to last 10 lines)
+            current_text = self.topic_logs.toPlainText().split('\n')
+            if len(current_text) > 10:
+                current_text = current_text[-9:]
+            current_text.append(msg_str)
+            self.topic_logs.setText('\n'.join(current_text))
+        except Exception as e:
+            pass  # Silently ignore formatting errors
+
+    def _format_message(self, topic, msg):
+        """Format a ROS message for display"""
+        # Extract key fields based on common message types
+        if hasattr(msg, 'linear') and hasattr(msg, 'angular'):
+            # Twist message (cmd_vel)
+            return f"{topic} - linear.x: {msg.linear.x:.2f}, angular.z: {msg.angular.z:.2f}"
+        elif hasattr(msg, 'pose') and hasattr(msg.pose, 'pose'):
+            # Odometry message
+            pos = msg.pose.pose.position
+            return f"{topic} - pos: ({pos.x:.2f}, {pos.y:.2f}, {pos.z:.2f})"
+        elif hasattr(msg, 'latitude') and hasattr(msg, 'longitude'):
+            # NavSatFix message (GPS)
+            return f"{topic} - lat: {msg.latitude:.6f}, lon: {msg.longitude:.6f}"
+        elif hasattr(msg, 'linear_acceleration'):
+            # IMU message
+            acc = msg.linear_acceleration
+            return f"{topic} - acc: ({acc.x:.2f}, {acc.y:.2f}, {acc.z:.2f})"
+        else:
+            # Generic message
+            return f"{topic} - [message data]"
+
+    def update_topic_data(self, topic, msg, timestamp):
+        """Update topic data display"""
+        # This is called from RosThread
+        pass
+
+    def update_playback_progress(self, progress_info):
+        """Update playback progress bar and info"""
+        try:
+            progress = progress_info.get('progress', 0)
+            current_time = progress_info.get('current_time', 0)
+            duration = progress_info.get('duration', 0)
+            speed = progress_info.get('speed', 1.0)
+
+            # Update progress bar
+            self.progress_bar.setValue(int(progress))
+
+            # Update vehicle info with time
+            self.vehicle_info_label.setText(
+                f"Playback Time: {current_time:.2f}s / {duration:.2f}s\n"
+                f"Speed: {speed}x | Progress: {progress:.1f}%"
+            )
+        except Exception as e:
+            pass  # Silently handle errors
+
     def closeEvent(self, event):
         """Handle window close event"""
+        # Stop bag playback
+        if self.bag_player:
+            self.bag_player.stop()
+
+        # Stop RViz and Gazebo
+        if hasattr(self, 'rviz_widget'):
+            self.rviz_widget.stop_rviz()
+        if hasattr(self, 'gazebo_widget'):
+            self.gazebo_widget.stop_gazebo()
+
+        # Stop ROS thread
         self.ros_thread.stop()
         self.ros_thread.wait()
+
         event.accept()
 
 
