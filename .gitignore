@@ -1,0 +1,4 @@
+#Virtual Enviorment
+/.venv
+/venv
+/__pycache__
