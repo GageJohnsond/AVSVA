@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Launch RViz with custom configuration -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find av_simulator)/config/av_simulator.rviz" />
+  
+  <!-- Launch static transforms if needed -->
+  <node pkg="tf" type="static_transform_publisher" name="base_link_to_laser" 
+        args="0 0 0 0 0 0 base_link laser 100" />
+  
+  <!-- Visualization markers -->
+  <node pkg="rviz" type="rviz" name="visualization_markers" />
+  
+</launch>

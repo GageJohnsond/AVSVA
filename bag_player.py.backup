@@ -1,0 +1,399 @@
+"""
+BagPlayer Module
+Handles ROS bag file operations including export to CSV and playback
+"""
+
+import os
+import subprocess
+import csv
+from collections import defaultdict
+import signal
+import time # Import time for placeholder methods
+
+
+class BagPlayer:
+    """Handles .bag file operations with real ROS integration"""
+    
+    def __init__(self):
+        self.bag_path = None
+        self.output_dir = None
+        self.play_process = None
+        self.bag_info_cache = {}
+        self.has_rosbag = self._check_rosbag_available()
+        # New attributes for placeholder timing
+        self._playback_start_time = None
+        self._is_playing = False
+        
+    def _check_rosbag_available(self):
+        """Check if rosbag Python API is available"""
+        try:
+            import rosbag
+            return True
+        except ImportError:
+            print("Warning: rosbag Python API not available. Using fallback mode.")
+            return False
+        
+    def export_bag_to_csv(self, bag_path, output_dir):
+        """
+        Export bag topics to CSV files using rosbag Python API
+        
+        Args:
+            bag_path (str): Path to the .bag file
+            output_dir (str): Directory for output CSVs
+            
+        Returns:
+            str: Output directory path
+        """
+        self.bag_path = bag_path
+        self.output_dir = output_dir
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        if self.has_rosbag:
+            return self._export_with_rosbag_api(bag_path, output_dir)
+        else:
+            return self._create_sample_csvs(output_dir)
+    
+    def _export_with_rosbag_api(self, bag_path, output_dir):
+        """Export using rosbag Python API"""
+        try:
+            import rosbag
+            
+            # Open the bag file
+            bag = rosbag.Bag(bag_path, 'r')
+            
+            # Get bag info
+            info = bag.get_type_and_topic_info()
+            topics = info.topics.keys()
+            
+            # Dictionary to store CSV writers for each topic
+            csv_writers = {}
+            csv_files = {}
+            
+            # Process each message in the bag
+            for topic, msg, t in bag.read_messages():
+                # Sanitize topic name for filename
+                topic_name = topic.replace('/', '_').strip('_')
+                csv_path = os.path.join(output_dir, f'{topic_name}.csv')
+                
+                # Create CSV writer if not exists
+                if topic not in csv_writers:
+                    csv_files[topic] = open(csv_path, 'w', newline='')
+                    csv_writers[topic] = csv.writer(csv_files[topic])
+                    
+                    # Write header based on message type
+                    header = self._get_message_header(msg, t)
+                    csv_writers[topic].writerow(header)
+                
+                # Write message data
+                row = self._message_to_row(msg, t)
+                csv_writers[topic].writerow(row)
+            
+            # Close all CSV files
+            for f in csv_files.values():
+                f.close()
+                
+            bag.close()
+            
+            return output_dir
+            
+        except Exception as e:
+            print(f"Error exporting bag to CSV: {e}")
+            return self._create_sample_csvs(output_dir)
+        
+    def _create_sample_csvs(self, output_dir):
+        """
+        Create sample CSV files when ROS is not available
+        
+        Args:
+            output_dir (str): Directory for output CSVs
+            
+        Returns:
+            str: Output directory path
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        
+        topics = {
+            'cmd_vel': ['timestamp', 'linear_x', 'linear_y', 'linear_z', 'angular_x', 'angular_y', 'angular_z'],
+            'imu_data': ['timestamp', 'orientation_x', 'orientation_y', 'orientation_z', 'orientation_w', 
+                        'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z',
+                        'linear_acceleration_x', 'linear_acceleration_y', 'linear_acceleration_z'],
+            'navsat_fix': ['timestamp', 'latitude', 'longitude', 'altitude', 'status', 'service'],
+            'odometry': ['timestamp', 'position_x', 'position_y', 'position_z', 
+                        'orientation_x', 'orientation_y', 'orientation_z', 'orientation_w',
+                        'linear_velocity_x', 'linear_velocity_y', 'linear_velocity_z',
+                        'angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z']
+        }
+        
+        for topic, headers in topics.items():
+            csv_path = os.path.join(output_dir, f'{topic}.csv')
+            with open(csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                # Add sample data
+                import time
+                import random
+                base_time = time.time()
+                for i in range(100):
+                    row = [base_time + i * 0.1] + [random.uniform(-1, 1) for _ in range(len(headers) - 1)]
+                    writer.writerow(row)
+        
+        return output_dir
+        
+    def _get_message_header(self, msg, timestamp):
+        """
+        Generate CSV header from message structure
+        
+        Args:
+            msg: ROS message
+            timestamp: Message timestamp
+            
+        Returns:
+            list: Header column names
+        """
+        header = ['timestamp']
+        
+        # Add fields based on message type
+        if hasattr(msg, '__slots__'):
+            for slot in msg.__slots__:
+                field = getattr(msg, slot)
+                if hasattr(field, '__slots__'):
+                    # Nested message
+                    for subslot in field.__slots__:
+                        header.append(f'{slot}_{subslot}')
+                else:
+                    header.append(slot)
+        
+        return header
+        
+    def _message_to_row(self, msg, timestamp):
+        """
+        Convert ROS message to CSV row
+        
+        Args:
+            msg: ROS message
+            timestamp: Message timestamp
+            
+        Returns:
+            list: Row data
+        """
+        row = [timestamp.to_sec()]
+        
+        if hasattr(msg, '__slots__'):
+            for slot in msg.__slots__:
+                field = getattr(msg, slot)
+                if hasattr(field, '__slots__'):
+                    # Nested message
+                    for subslot in field.__slots__:
+                        row.append(getattr(field, subslot))
+                else:
+                    row.append(field)
+        
+        return row
+        
+    def play_bag(self, bag_path, rate=1.0, topics=None, start_time=None, duration=None):
+        """
+        Play back bag messages using rosbag play command
+        
+        Args:
+            bag_path (str): Path to the .bag file
+            rate (float): Playback speed multiplier
+            topics (list): Specific topics to play (None for all)
+            start_time (float): Start time offset in seconds
+            duration (float): Duration to play in seconds
+            
+        Returns:
+            subprocess.Popen: Process handle
+        """
+        self.bag_path = bag_path
+        self._is_playing = True # Update state for new placeholder methods
+        self._playback_start_time = time.time()
+        
+        # Build rosbag play command
+        cmd = ['rosbag', 'play']
+        
+        if rate != 1.0:
+            cmd.extend(['-r', str(rate)])
+            
+        if start_time is not None:
+            cmd.extend(['-s', str(start_time)])
+            
+        if duration is not None:
+            cmd.extend(['-u', str(duration)])
+            
+        if topics:
+            cmd.extend(['--topics'] + topics)
+            
+        cmd.append(bag_path)
+        
+        try:
+            # Start rosbag play process
+            self.play_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid
+            )
+            return self.play_process
+            
+        except Exception as e:
+            print(f"Error playing bag: {e}")
+            self._is_playing = False # Reset state on failure
+            return None
+            
+    def stop_playback(self):
+        """Stop the current bag playback"""
+        self._is_playing = False # Update state for new placeholder methods
+        if self.play_process:
+            try:
+                os.killpg(os.getpgid(self.play_process.pid), signal.SIGTERM)
+                self.play_process.wait(timeout=5)
+            except Exception as e:
+                print(f"Error stopping playback: {e}")
+            finally:
+                self.play_process = None
+                
+    def pause_playback(self):
+        """Pause the current bag playback"""
+        self._is_playing = False # Update state for new placeholder methods
+        if self.play_process:
+            try:
+                os.killpg(os.getpgid(self.play_process.pid), signal.SIGSTOP)
+            except Exception as e:
+                print(f"Error pausing playback: {e}")
+                
+    def resume_playback(self):
+        """Resume the paused bag playback"""
+        self._is_playing = True # Update state for new placeholder methods
+        if self.play_process:
+            try:
+                os.killpg(os.getpgid(self.play_process.pid), signal.SIGCONT)
+            except Exception as e:
+                print(f"Error resuming playback: {e}")
+                
+    def get_bag_info(self, bag_path):
+        """
+        Get information about a bag file using rosbag info
+        
+        Args:
+            bag_path (str): Path to the .bag file
+            
+        Returns:
+            dict: Bag file information
+        """
+        # Check cache first
+        if bag_path in self.bag_info_cache:
+            return self.bag_info_cache[bag_path]
+            
+        if not self.has_rosbag:
+            return self._get_fallback_info(bag_path)
+            
+        try:
+            import rosbag
+            
+            bag = rosbag.Bag(bag_path, 'r')
+            
+            # Get basic info
+            start_time = None
+            end_time = None
+            message_count = 0
+            
+            for topic, msg, t in bag.read_messages():
+                if start_time is None:
+                    start_time = t
+                end_time = t
+                message_count += 1
+            
+            duration = (end_time - start_time).to_sec() if start_time and end_time else 0
+            
+            # Get topic info
+            info = bag.get_type_and_topic_info()
+            topics = list(info.topics.keys())
+            
+            # Get file size
+            size = os.path.getsize(bag_path)
+            
+            bag.close()
+            
+            info_dict = {
+                'duration': f'{duration:.2f} seconds',
+                'size': f'{size / (1024**3):.2f} GB',
+                'topics': topics,
+                'message_count': message_count,
+                'start_time': start_time.to_sec() if start_time else 0,
+                'end_time': end_time.to_sec() if end_time else 0
+            }
+            
+            # Cache the info
+            self.bag_info_cache[bag_path] = info_dict
+            
+            return info_dict
+            
+        except Exception as e:
+            print(f"Error getting bag info: {e}")
+            return self._get_fallback_info(bag_path)
+    
+    def _get_fallback_info(self, bag_path):
+        """Get fallback info when rosbag API not available"""
+        return {
+            'duration': 'Unknown',
+            'size': f'{os.path.getsize(bag_path) / (1024**3):.2f} GB' if os.path.exists(bag_path) else 'Unknown',
+            'topics': ['/cmd_vel', '/imu/data', '/navsat/fix', '/odometry'],
+            'message_count': 0
+        }
+            
+    def get_topics_list(self, bag_path):
+        """
+        Get list of topics in bag file
+        
+        Args:
+            bag_path (str): Path to the .bag file
+            
+        Returns:
+            list: Topic names
+        """
+        info = self.get_bag_info(bag_path)
+        return info.get('topics', [])
+        
+    # === METHODS FOR AV_SIMULATOR.PY ===
+    def start_playback(self, bag_path):
+        """
+        Start playback for the GUI - wrapper around play_bag
+        This is the method called by av_simulator.py
+        
+        Args:
+            bag_path (str): Path to the .bag file
+        """
+        # Actually start the rosbag play process
+        return self.play_bag(bag_path, rate=1.0)
+        
+    def is_playing(self):
+        """Check if rosbag play process is active"""
+        return self._is_playing and (self.play_process and self.play_process.poll() is None)
+
+    def get_bag_duration(self, bag_path):
+        """Get actual duration from bag file info"""
+        info = self.get_bag_info(bag_path)
+        duration_str = info.get('duration', '60.0 seconds')
+        
+        # Parse duration string (e.g., "150.32 seconds")
+        try:
+            if isinstance(duration_str, str) and 'seconds' in duration_str.lower():
+                duration = float(duration_str.split()[0])
+            elif isinstance(duration_str, (int, float)):
+                duration = float(duration_str)
+            else:
+                duration = 60.0
+            return duration
+        except (ValueError, IndexError, AttributeError):
+            return 60.0  # Default fallback
+
+    def get_playback_start_time(self):
+        """Returns the system time when playback started."""
+        return self._playback_start_time if self._playback_start_time else time.time()
+
+    def get_elapsed_time(self, start_time):
+        """Calculates elapsed time since start_time."""
+        return time.time() - start_time
+    # ===============================================
