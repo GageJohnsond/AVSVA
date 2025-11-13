@@ -1,26 +1,4 @@
-# Virtual Environment
+#Virtual Enviorment
 /.venv
 /venv
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.claude
-
-# Bag files and generated data
-csv_output/
-*.bag
-
-# RViz temp files
-.rviz
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
+/__pycache__
