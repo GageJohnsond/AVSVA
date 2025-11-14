@@ -746,32 +746,57 @@ class MainWindow(QMainWindow):
         if not self.current_bag_path:
             QMessageBox.warning(self, "No File", "Please load a .bag file first.")
             return
-        
+    
         if not self.ros_viz_manager.is_running():
-            QMessageBox.warning(self, "No Visualization", "Please click 'Launch Visualization' first.")
+            QMessageBox.warning(self, "No Visualization", "Please click 'Launch RViz' first.")
             return
 
         self.simulation_running = True
         self.sim_status_label.setText("Status: Playing Bag File")
         self.tabs.setCurrentIndex(1)
-        
+    
         try:
             self.log_console.append(f"[{self.get_timestamp()}] Starting rosbag playback...")
-            self.bag_player.start_playback(self.current_bag_path)
+        
+            # Define lightweight topics for smooth visualization
+            lightweight_topics = [
+                '/warty/odom',
+                '/warty/cmd_vel', 
+                '/warty/imu/data',
+                '/warty/pose',
+                '/warty/lidar_points',
+                '/warty/lidar_points_front',
+                '/tf',
+                '/tf_static',
+                '/warty/navigation_manager/global_plan',
+                '/warty/navigation_manager/status'
+            ]
+        
+            # Play at 0.25x speed with loop=True and lightweight topics only
+            self.bag_player.play_bag(
+                self.current_bag_path,
+                rate=0.25,
+                topics=lightweight_topics,
+                loop=True
+            )
+        
+            self.log_console.append(f"[{self.get_timestamp()}] Playing at 0.25x speed with lightweight topics (no cameras)")
+            self.log_console.append(f"[{self.get_timestamp()}] Looping enabled - playback will repeat automatically")
+        
             self.btn_play.setEnabled(False)
             self.btn_pause.setEnabled(True)
-            
+        
             try:
                 self.bag_duration = self.bag_player.get_bag_duration(self.current_bag_path)
                 self.start_time = self.bag_player.get_playback_start_time()
             except Exception:
                 self.bag_duration = 60.0
                 self.start_time = time.time() 
-                
+            
             self.update_timer = QTimer(self)
             self.update_timer.timeout.connect(self.update_playback_status)
             self.update_timer.start(100)
-            
+        
         except Exception as e:
             self.show_error(f"Failed to start bag playback: {str(e)}")
 
