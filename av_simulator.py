@@ -399,75 +399,169 @@ class MainWindow(QMainWindow):
         return widget
         
     def create_analysis_tab(self):
-        """Create the data analysis tab"""
+        """Create the data analysis tab with security monitoring"""
         widget = QWidget()
         layout = QVBoxLayout()
-        
-        filter_group = QGroupBox("Analysis Filters")
+
+        # === Security Threshold Configuration ===
+        threshold_group = QGroupBox("Security Thresholds (Configurable)")
+        threshold_layout = QVBoxLayout()
+
+        # Row 1: Velocity thresholds
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Max Velocity (m/s):"))
+        self.threshold_velocity = QLineEdit("5.0")
+        self.threshold_velocity.setMaximumWidth(80)
+        row1.addWidget(self.threshold_velocity)
+
+        row1.addWidget(QLabel("Max Angular Vel (rad/s):"))
+        self.threshold_angular = QLineEdit("2.0")
+        self.threshold_angular.setMaximumWidth(80)
+        row1.addWidget(self.threshold_angular)
+
+        row1.addWidget(QLabel("Max Accel (m/s²):"))
+        self.threshold_accel = QLineEdit("3.0")
+        self.threshold_accel.setMaximumWidth(80)
+        row1.addWidget(self.threshold_accel)
+        row1.addStretch()
+        threshold_layout.addLayout(row1)
+
+        # Row 2: Other thresholds
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Max Path Deviation (m):"))
+        self.threshold_path_dev = QLineEdit("2.0")
+        self.threshold_path_dev.setMaximumWidth(80)
+        row2.addWidget(self.threshold_path_dev)
+
+        row2.addWidget(QLabel("Sensor Dropout (s):"))
+        self.threshold_dropout = QLineEdit("1.0")
+        self.threshold_dropout.setMaximumWidth(80)
+        row2.addWidget(self.threshold_dropout)
+
+        row2.addWidget(QLabel("Z-Score Threshold:"))
+        self.threshold_zscore = QLineEdit("3.0")
+        self.threshold_zscore.setMaximumWidth(80)
+        row2.addWidget(self.threshold_zscore)
+        row2.addStretch()
+        threshold_layout.addLayout(row2)
+
+        # Apply button
+        apply_threshold_btn = QPushButton("Update Thresholds")
+        apply_threshold_btn.setStyleSheet("background-color: #FF9800; color: white;")
+        apply_threshold_btn.clicked.connect(self.update_security_thresholds)
+        threshold_layout.addWidget(apply_threshold_btn)
+
+        threshold_group.setLayout(threshold_layout)
+        layout.addWidget(threshold_group)
+
+        # === Analysis Control ===
+        filter_group = QGroupBox("Analysis Controls")
         filter_layout = QHBoxLayout()
-        
-        filter_layout.addWidget(QLabel("Dataset:"))
-        self.dataset_combo = QComboBox()
-        self.dataset_combo.addItems(["imu_data.csv", "navsat_fix.csv", "cmd_vel.csv", "odometry.csv"])
-        filter_layout.addWidget(self.dataset_combo)
-        
-        filter_layout.addWidget(QLabel("Time Range:"))
-        self.time_start = QLineEdit("Start")
-        filter_layout.addWidget(self.time_start)
-        filter_layout.addWidget(QLabel("to"))
-        self.time_end = QLineEdit("End")
-        filter_layout.addWidget(self.time_end)
-        
-        filter_layout.addWidget(QLabel("Columns:"))
-        self.columns_combo = QComboBox()
-        self.columns_combo.addItem("All")
-        filter_layout.addWidget(self.columns_combo)
-        
+
+        self.btn_run_security_analysis = QPushButton("🔍 Run Security Analysis")
+        self.btn_run_security_analysis.setStyleSheet("background-color: #E74C3C; color: white; font-weight: bold; padding: 10px;")
+        self.btn_run_security_analysis.clicked.connect(self.run_security_analysis)
+        filter_layout.addWidget(self.btn_run_security_analysis)
+
         self.btn_apply_filters = QPushButton("Apply Filters")
         self.btn_apply_filters.setStyleSheet("background-color: #4A90E2; color: white;")
         self.btn_apply_filters.clicked.connect(self.apply_analysis_filters)
         filter_layout.addWidget(self.btn_apply_filters)
-        
+
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
         
         analysis_tabs = QTabWidget()
-        
-        corr_widget = QWidget()
-        corr_layout = QVBoxLayout()
-        
-        self.figure = Figure(figsize=(8, 6))
-        self.canvas = FigureCanvas(self.figure)
-        corr_layout.addWidget(self.canvas)
-        
-        corr_widget.setLayout(corr_layout)
-        analysis_tabs.addTab(corr_widget, "Correlations")
-        
+
+        # === TAB 1: Anomaly Detection ===
         anomaly_widget = QWidget()
         anomaly_layout = QVBoxLayout()
-        
+
         self.anomaly_table = QTableWidget()
         self.anomaly_table.setColumnCount(5)
-        self.anomaly_table.setHorizontalHeaderLabels(["Timestamp", "Variable", "Expected", "Actual", "Z-Score"])
+        self.anomaly_table.setHorizontalHeaderLabels(["Timestamp", "Type", "Severity", "Details", "Value"])
         self.anomaly_table.setRowCount(0)
-        
+
         anomaly_layout.addWidget(self.anomaly_table)
-        
-        self.btn_export_analysis = QPushButton("Export Results")
+
+        self.btn_export_analysis = QPushButton("Export Anomalies")
         self.btn_export_analysis.setStyleSheet("background-color: #50C878; color: white;")
         self.btn_export_analysis.clicked.connect(self.export_analysis_results)
         anomaly_layout.addWidget(self.btn_export_analysis)
-        
+
         anomaly_widget.setLayout(anomaly_layout)
-        analysis_tabs.addTab(anomaly_widget, "Anomalies")
-        
+        analysis_tabs.addTab(anomaly_widget, "🚨 Anomalies")
+
+        # === TAB 2: Trajectory Deviation ===
+        trajectory_widget = QWidget()
+        trajectory_layout = QVBoxLayout()
+
+        self.trajectory_figure = Figure(figsize=(8, 6))
+        self.trajectory_canvas = FigureCanvas(self.trajectory_figure)
+        trajectory_layout.addWidget(self.trajectory_canvas)
+
+        # Trajectory stats
+        self.trajectory_stats = QTextEdit()
+        self.trajectory_stats.setReadOnly(True)
+        self.trajectory_stats.setMaximumHeight(100)
+        trajectory_layout.addWidget(self.trajectory_stats)
+
+        trajectory_widget.setLayout(trajectory_layout)
+        analysis_tabs.addTab(trajectory_widget, "📍 Trajectory")
+
+        # === TAB 3: Sensor Health ===
+        sensor_widget = QWidget()
+        sensor_layout = QVBoxLayout()
+
+        self.sensor_health_table = QTableWidget()
+        self.sensor_health_table.setColumnCount(5)
+        self.sensor_health_table.setHorizontalHeaderLabels(["Sensor", "Status", "Messages", "Avg Rate", "Health Score"])
+        self.sensor_health_table.setRowCount(0)
+        sensor_layout.addWidget(self.sensor_health_table)
+
+        # Dropout details
+        dropout_label = QLabel("Sensor Dropouts:")
+        sensor_layout.addWidget(dropout_label)
+        self.dropout_text = QTextEdit()
+        self.dropout_text.setReadOnly(True)
+        self.dropout_text.setMaximumHeight(150)
+        sensor_layout.addWidget(self.dropout_text)
+
+        sensor_widget.setLayout(sensor_layout)
+        analysis_tabs.addTab(sensor_widget, "🔧 Sensor Health")
+
+        # === TAB 4: Event Timeline ===
+        timeline_widget = QWidget()
+        timeline_layout = QVBoxLayout()
+
+        self.timeline_table = QTableWidget()
+        self.timeline_table.setColumnCount(4)
+        self.timeline_table.setHorizontalHeaderLabels(["Timestamp", "Source", "Level", "Message"])
+        self.timeline_table.setRowCount(0)
+        timeline_layout.addWidget(self.timeline_table)
+
+        timeline_widget.setLayout(timeline_layout)
+        analysis_tabs.addTab(timeline_widget, "📋 Event Timeline")
+
+        # === TAB 5: Correlation Heatmap (Original) ===
+        corr_widget = QWidget()
+        corr_layout = QVBoxLayout()
+
+        self.figure = Figure(figsize=(8, 6))
+        self.canvas = FigureCanvas(self.figure)
+        corr_layout.addWidget(self.canvas)
+
+        corr_widget.setLayout(corr_layout)
+        analysis_tabs.addTab(corr_widget, "📊 Correlations")
+
+        # === TAB 6: Statistics ===
         stats_widget = QWidget()
         stats_layout = QVBoxLayout()
         self.stats_text = QTextEdit()
         self.stats_text.setReadOnly(True)
         stats_layout.addWidget(self.stats_text)
         stats_widget.setLayout(stats_layout)
-        analysis_tabs.addTab(stats_widget, "Statistics")
+        analysis_tabs.addTab(stats_widget, "📈 Statistics")
         
         layout.addWidget(analysis_tabs)
         
@@ -763,7 +857,217 @@ class MainWindow(QMainWindow):
         if file_path:
             self.log_console.append(f"[{self.get_timestamp()}] Exporting results to {file_path}")
             QMessageBox.information(self, "Export Complete", f"Results exported to {file_path}")
-    
+
+    # ==================== NEW SECURITY ANALYSIS METHODS ====================
+
+    def update_security_thresholds(self):
+        """Update security thresholds in the data analyzer"""
+        try:
+            new_thresholds = {
+                'velocity_max': float(self.threshold_velocity.text()),
+                'angular_velocity_max': float(self.threshold_angular.text()),
+                'acceleration_max': float(self.threshold_accel.text()),
+                'path_deviation_max': float(self.threshold_path_dev.text()),
+                'sensor_dropout_max': float(self.threshold_dropout.text()),
+                'zscore_threshold': float(self.threshold_zscore.text())
+            }
+
+            self.data_analyzer.update_thresholds(new_thresholds)
+            self.log_console.append(f"[{self.get_timestamp()}] Security thresholds updated successfully")
+            QMessageBox.information(self, "Thresholds Updated", "Security monitoring thresholds have been updated.")
+
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values for all thresholds.")
+            self.log_console.append(f"[{self.get_timestamp()}] Error updating thresholds: Invalid input")
+
+    def run_security_analysis(self):
+        """Run comprehensive security analysis on loaded data"""
+        if not self.current_csv_dir:
+            QMessageBox.warning(self, "No Data", "Please load and export a .bag file first.")
+            return
+
+        self.log_console.append(f"[{self.get_timestamp()}] Starting security analysis...")
+
+        try:
+            # Load CSVs if not already loaded
+            if not self.data_analyzer.dfs:
+                self.log_console.append(f"[{self.get_timestamp()}] Loading CSV files from {self.current_csv_dir}")
+                self.data_analyzer.load_csvs(self.current_csv_dir)
+
+            # Update thresholds first
+            self.update_security_thresholds()
+
+            # 1. Anomaly Detection
+            self.log_console.append(f"[{self.get_timestamp()}] Running anomaly detection...")
+            anomalies_df = self.data_analyzer.detect_behavioral_anomalies()
+            self.display_anomalies(anomalies_df)
+
+            # 2. Trajectory Deviation
+            self.log_console.append(f"[{self.get_timestamp()}] Computing trajectory deviation...")
+            traj_result = self.data_analyzer.compute_trajectory_deviation()
+            self.display_trajectory_deviation(traj_result)
+
+            # 3. Sensor Health
+            self.log_console.append(f"[{self.get_timestamp()}] Analyzing sensor health...")
+            sensor_health = self.data_analyzer.analyze_sensor_health()
+            self.display_sensor_health(sensor_health)
+
+            # 4. Event Timeline
+            self.log_console.append(f"[{self.get_timestamp()}] Parsing event timeline...")
+            timeline_df = self.data_analyzer.parse_event_timeline()
+            self.display_event_timeline(timeline_df)
+
+            self.log_console.append(f"[{self.get_timestamp()}] Security analysis complete!")
+            QMessageBox.information(self, "Analysis Complete",
+                                   f"Security analysis complete!\n\n"
+                                   f"Anomalies detected: {len(anomalies_df)}\n"
+                                   f"Events logged: {len(timeline_df)}")
+
+        except Exception as e:
+            self.show_error(f"Error during security analysis: {str(e)}")
+            import traceback
+            self.log_console.append(f"[{self.get_timestamp()}] Error: {traceback.format_exc()}")
+
+    def display_anomalies(self, anomalies_df):
+        """Display anomaly detection results in table"""
+        self.anomaly_table.setRowCount(0)
+
+        if anomalies_df.empty:
+            self.log_console.append(f"[{self.get_timestamp()}] No anomalies detected")
+            return
+
+        self.anomaly_table.setRowCount(len(anomalies_df))
+
+        for i, (idx, row) in enumerate(anomalies_df.iterrows()):
+            self.anomaly_table.setItem(i, 0, QTableWidgetItem(f"{row['timestamp']:.2f}"))
+            self.anomaly_table.setItem(i, 1, QTableWidgetItem(str(row['type'])))
+
+            # Color code by severity
+            severity_item = QTableWidgetItem(str(row['severity']))
+            if row['severity'] == 'Critical':
+                severity_item.setBackground(QColor(231, 76, 60))  # Red
+                severity_item.setForeground(QColor(255, 255, 255))
+            elif row['severity'] == 'High':
+                severity_item.setBackground(QColor(230, 126, 34))  # Orange
+            elif row['severity'] == 'Medium':
+                severity_item.setBackground(QColor(241, 196, 15))  # Yellow
+
+            self.anomaly_table.setItem(i, 2, severity_item)
+            self.anomaly_table.setItem(i, 3, QTableWidgetItem(str(row['details'])))
+            self.anomaly_table.setItem(i, 4, QTableWidgetItem(str(row['value'])))
+
+        self.anomaly_table.resizeColumnsToContents()
+        self.log_console.append(f"[{self.get_timestamp()}] Displayed {len(anomalies_df)} anomalies")
+
+    def display_trajectory_deviation(self, traj_result):
+        """Display trajectory deviation visualization"""
+        self.trajectory_figure.clear()
+
+        if not traj_result['has_data']:
+            ax = self.trajectory_figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No trajectory data available',
+                   ha='center', va='center', transform=ax.transAxes)
+            self.trajectory_canvas.draw()
+            return
+
+        # Plot trajectory
+        ax = self.trajectory_figure.add_subplot(111)
+
+        if traj_result['trajectory_data'] is not None:
+            traj_data = traj_result['trajectory_data']
+            ax.plot(traj_data['pose_position_x'], traj_data['pose_position_y'],
+                   'b-', linewidth=2, label='Actual Path')
+            ax.scatter(traj_data['pose_position_x'].iloc[0],
+                      traj_data['pose_position_y'].iloc[0],
+                      c='green', s=100, marker='o', label='Start')
+            ax.scatter(traj_data['pose_position_x'].iloc[-1],
+                      traj_data['pose_position_y'].iloc[-1],
+                      c='red', s=100, marker='X', label='End')
+
+        ax.set_xlabel('Position X (m)')
+        ax.set_ylabel('Position Y (m)')
+        ax.set_title('Vehicle Trajectory')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+
+        self.trajectory_figure.tight_layout()
+        self.trajectory_canvas.draw()
+
+        # Display stats
+        stats_text = f"Mean Deviation: {traj_result['mean_deviation']:.3f} m\n"
+        stats_text += f"Max Deviation: {traj_result['max_deviation']:.3f} m"
+        self.trajectory_stats.setText(stats_text)
+
+    def display_sensor_health(self, sensor_health):
+        """Display sensor health monitoring results"""
+        self.sensor_health_table.setRowCount(0)
+        self.sensor_health_table.setRowCount(len(sensor_health))
+
+        dropout_text = ""
+
+        for i, (sensor_name, health) in enumerate(sensor_health.items()):
+            self.sensor_health_table.setItem(i, 0, QTableWidgetItem(sensor_name))
+
+            # Status with color coding
+            status_item = QTableWidgetItem(health['status'])
+            if health['status'] == 'Healthy':
+                status_item.setBackground(QColor(46, 204, 113))  # Green
+                status_item.setForeground(QColor(255, 255, 255))
+            elif health['status'] == 'Degraded':
+                status_item.setBackground(QColor(241, 196, 15))  # Yellow
+            elif health['status'] in ['Critical', 'Missing']:
+                status_item.setBackground(QColor(231, 76, 60))  # Red
+                status_item.setForeground(QColor(255, 255, 255))
+
+            self.sensor_health_table.setItem(i, 1, status_item)
+            self.sensor_health_table.setItem(i, 2, QTableWidgetItem(str(health['message_count'])))
+            self.sensor_health_table.setItem(i, 3, QTableWidgetItem(f"{health['avg_rate']:.1f} Hz"))
+            self.sensor_health_table.setItem(i, 4, QTableWidgetItem(f"{health['health_score']}/100"))
+
+            # Collect dropout info
+            if health['dropouts']:
+                dropout_text += f"\n{sensor_name}:\n"
+                for dropout in health['dropouts'][:5]:  # Limit to 5
+                    dropout_text += f"  - t={dropout['timestamp']:.2f}s, duration={dropout['duration']:.2f}s\n"
+
+        self.sensor_health_table.resizeColumnsToContents()
+        self.dropout_text.setText(dropout_text if dropout_text else "No sensor dropouts detected")
+
+    def display_event_timeline(self, timeline_df):
+        """Display event timeline"""
+        self.timeline_table.setRowCount(0)
+
+        if timeline_df.empty:
+            self.log_console.append(f"[{self.get_timestamp()}] No timeline events")
+            return
+
+        # Limit display to most recent 100 events
+        display_df = timeline_df.tail(100)
+        self.timeline_table.setRowCount(len(display_df))
+
+        for i, (idx, row) in enumerate(display_df.iterrows()):
+            self.timeline_table.setItem(i, 0, QTableWidgetItem(f"{row['timestamp']:.2f}"))
+            self.timeline_table.setItem(i, 1, QTableWidgetItem(str(row['source'])))
+
+            # Color code by level
+            level_item = QTableWidgetItem(str(row['level']))
+            if row['level'] in ['Error', 'Critical']:
+                level_item.setBackground(QColor(231, 76, 60))  # Red
+                level_item.setForeground(QColor(255, 255, 255))
+            elif row['level'] == 'Warning':
+                level_item.setBackground(QColor(241, 196, 15))  # Yellow
+            elif row['level'] in ['High', 'Medium']:
+                level_item.setBackground(QColor(230, 126, 34))  # Orange
+
+            self.timeline_table.setItem(i, 2, level_item)
+            self.timeline_table.setItem(i, 3, QTableWidgetItem(str(row['message'])[:100]))
+
+        self.timeline_table.resizeColumnsToContents()
+        self.log_console.append(f"[{self.get_timestamp()}] Displayed {len(display_df)} timeline events")
+
+    # ==================== END SECURITY ANALYSIS METHODS ====================
+
     def show_injection_tab(self):
         """Show the vulnerability injection tab"""
         self.tabs.setCurrentIndex(3)
