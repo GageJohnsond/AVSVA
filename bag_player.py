@@ -413,13 +413,17 @@ class BagPlayer:
         
         return output_dir
         
-    def play_bag(self, bag_path, rate=1.0, topics=None, start_time=None, duration=None):
+    def play_bag(self, bag_path, rate=1.0, topics=None, start_time=None, duration=None, loop=True):
         """Play back bag messages using rosbag play command"""
         self.bag_path = bag_path
         self._is_playing = True
         self._playback_start_time = time.time()
         
         cmd = ['rosbag', 'play']
+        
+        # Add loop flag by default
+        if loop:
+            cmd.append('-l')
         
         if rate != 1.0:
             cmd.extend(['-r', str(rate)])
