@@ -19,9 +19,10 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QListWidget, QSplitter, QMessageBox, QProgressBar,
                              QComboBox, QScrollArea, QCheckBox, QTabBar, QStylePainter,
                              QStyleOptionTab, QProxyStyle, QSizePolicy, QStyle, QSpinBox,
-                             QDoubleSpinBox, QInputDialog)
+                             QDoubleSpinBox, QInputDialog, QTableWidget, QTableWidgetItem,
+                             QHeaderView, QLineEdit, QFrame)
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QSize, QRect
-from PyQt5.QtGui import QFont, QColor, QPalette, QTransform
+from PyQt5.QtGui import QFont, QColor, QPalette, QTransform, QBrush
 
 import rospy
 from geometry_msgs.msg import Twist
@@ -1534,62 +1535,429 @@ while not rospy.is_shutdown():
         return widget
 
     def create_topic_analysis_widget(self, topic_name):
-        """Create analysis widget for a specific topic"""
+        """Create advanced analysis widget with table view and conditional formatting"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
 
         topic_data = self.bag_data['topics'][topic_name]
 
-        # Topic info
-        info_text = QLabel(f"Topic: {topic_name} | Type: {topic_data['type']} | Messages: {topic_data['message_count']} | Frequency: {topic_data['frequency']:.2f} Hz")
-        info_text.setStyleSheet("font-weight: bold; padding: 10px; background-color: #f3f4f6; border-radius: 6px;")
-        layout.addWidget(info_text)
+        # Header with topic info and statistics
+        header_frame = QFrame()
+        header_frame.setStyleSheet("background-color: #f3f4f6; border-radius: 6px; padding: 10px;")
+        header_layout = QVBoxLayout(header_frame)
 
-        # Message viewer
-        viewer = QTextEdit()
-        viewer.setReadOnly(True)
-        viewer.setStyleSheet("""
-            QTextEdit {
-                background-color: #f9fafb;
-                border: 1px solid #e5e7eb;
+        info_text = QLabel(f"<b>Topic:</b> {topic_name} | <b>Type:</b> {topic_data['type']}")
+        info_text.setStyleSheet("font-size: 11pt;")
+        header_layout.addWidget(info_text)
+
+        stats_text = QLabel(f"<b>Messages:</b> {topic_data['message_count']} | <b>Frequency:</b> {topic_data['frequency']:.2f} Hz | <b>Duration:</b> {self.bag_data['duration']:.2f}s")
+        stats_text.setStyleSheet("font-size: 10pt; color: #6b7280;")
+        header_layout.addWidget(stats_text)
+
+        layout.addWidget(header_frame)
+
+        # Toolbar with search and analysis tools
+        toolbar_layout = QHBoxLayout()
+
+        # Search box
+        search_label = QLabel("Search:")
+        toolbar_layout.addWidget(search_label)
+
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Filter messages...")
+        search_box.setStyleSheet("""
+            QLineEdit {
+                padding: 6px;
+                border: 1px solid #d1d5db;
                 border-radius: 4px;
-                padding: 12px;
-                font-family: 'Courier New', monospace;
-                font-size: 10pt;
+                background-color: white;
             }
         """)
+        search_box.textChanged.connect(lambda text: self.filter_table(topic_name, text))
+        toolbar_layout.addWidget(search_box)
 
-        # Show first 50 messages
-        messages_to_show = topic_data['messages'][:50]
-        message_text = []
-        for i, msg_data in enumerate(messages_to_show):
-            message_text.append(f"[{i+1}] Time: {msg_data['timestamp']:.6f}")
-            message_text.append(str(msg_data['message']))
-            message_text.append("-" * 80)
+        toolbar_layout.addStretch()
 
-        if len(topic_data['messages']) > 50:
-            message_text.append(f"\n... ({len(topic_data['messages']) - 50} more messages)")
+        # Anomaly highlighting toggle
+        highlight_btn = QCheckBox("Highlight Anomalies")
+        highlight_btn.setChecked(True)
+        highlight_btn.stateChanged.connect(lambda state: self.toggle_anomaly_highlighting(topic_name, state))
+        toolbar_layout.addWidget(highlight_btn)
 
-        viewer.setPlainText("\n".join(message_text))
-        layout.addWidget(viewer)
+        # Statistics button
+        stats_btn = QPushButton("Statistics")
+        stats_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #4f46e5; }
+        """)
+        stats_btn.clicked.connect(lambda: self.show_topic_statistics(topic_name))
+        toolbar_layout.addWidget(stats_btn)
 
-        # Export button
-        export_btn = QPushButton(f"Export {topic_name} to CSV")
-        export_btn.setStyleSheet("""
+        layout.addLayout(toolbar_layout)
+
+        # Create table based on topic type
+        table = self.create_topic_table(topic_name, topic_data)
+        table.setObjectName(f"table_{topic_name}")  # For finding later
+        layout.addWidget(table)
+
+        # Bottom toolbar with export options
+        bottom_toolbar = QHBoxLayout()
+        bottom_toolbar.addStretch()
+
+        export_csv_btn = QPushButton("Export to CSV")
+        export_csv_btn.setStyleSheet("""
             QPushButton {
                 background-color: #059669;
                 color: white;
-                padding: 10px;
+                padding: 8px 16px;
                 border-radius: 6px;
                 font-weight: bold;
             }
             QPushButton:hover { background-color: #047857; }
         """)
-        export_btn.clicked.connect(lambda: self.export_topic_csv(topic_name))
-        layout.addWidget(export_btn)
+        export_csv_btn.clicked.connect(lambda: self.export_topic_csv(topic_name))
+        bottom_toolbar.addWidget(export_csv_btn)
+
+        export_filtered_btn = QPushButton("Export Filtered")
+        export_filtered_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+        export_filtered_btn.clicked.connect(lambda: self.export_filtered_data(topic_name))
+        bottom_toolbar.addWidget(export_filtered_btn)
+
+        layout.addLayout(bottom_toolbar)
 
         return widget
+
+    def create_topic_table(self, topic_name, topic_data):
+        """Create formatted table for topic data with conditional formatting"""
+        table = QTableWidget()
+        table.setAlternatingRowColors(True)
+        table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                gridline-color: #e5e7eb;
+            }
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QTableWidget::item:selected {
+                background-color: #dbeafe;
+                color: #1e40af;
+            }
+            QHeaderView::section {
+                background-color: #f3f4f6;
+                padding: 8px;
+                border: 1px solid #e5e7eb;
+                font-weight: bold;
+            }
+        """)
+
+        msg_type = topic_data['type']
+        messages = topic_data['messages']
+
+        # Determine columns and data extraction based on message type
+        if 'Twist' in msg_type:
+            headers = ['#', 'Timestamp', 'Linear X', 'Linear Y', 'Linear Z', 'Angular X', 'Angular Y', 'Angular Z', 'Status']
+            table.setColumnCount(len(headers))
+            table.setHorizontalHeaderLabels(headers)
+            table.setRowCount(len(messages))
+
+            for i, msg_data in enumerate(messages):
+                msg = msg_data['message']
+                table.setItem(i, 0, QTableWidgetItem(str(i+1)))
+                table.setItem(i, 1, QTableWidgetItem(f"{msg_data['timestamp']:.6f}"))
+                table.setItem(i, 2, QTableWidgetItem(f"{msg.linear.x:.4f}"))
+                table.setItem(i, 3, QTableWidgetItem(f"{msg.linear.y:.4f}"))
+                table.setItem(i, 4, QTableWidgetItem(f"{msg.linear.z:.4f}"))
+                table.setItem(i, 5, QTableWidgetItem(f"{msg.angular.x:.4f}"))
+                table.setItem(i, 6, QTableWidgetItem(f"{msg.angular.y:.4f}"))
+                table.setItem(i, 7, QTableWidgetItem(f"{msg.angular.z:.4f}"))
+
+                # Conditional formatting for Twist messages (detect attacks)
+                status_item = QTableWidgetItem()
+                # Detect spin attack
+                if abs(msg.linear.x) < 0.1 and abs(msg.angular.z) > 1.5:
+                    status_item.setText("⚠️ SPIN ATTACK")
+                    status_item.setBackground(QBrush(QColor(254, 202, 202)))  # Red
+                    for col in range(8):
+                        table.item(i, col).setBackground(QBrush(QColor(254, 202, 202)))
+                # Detect high angular velocity
+                elif abs(msg.angular.z) > 1.0:
+                    status_item.setText("⚠️ High Angular")
+                    status_item.setBackground(QBrush(QColor(254, 243, 199)))  # Yellow
+                    for col in range(8):
+                        table.item(i, col).setBackground(QBrush(QColor(254, 243, 199)))
+                # Normal
+                else:
+                    status_item.setText("✓ Normal")
+                    status_item.setBackground(QBrush(QColor(220, 252, 231)))  # Green
+
+                table.setItem(i, 8, status_item)
+
+        elif 'Odometry' in msg_type:
+            headers = ['#', 'Timestamp', 'Pos X', 'Pos Y', 'Pos Z', 'Vel X', 'Vel Y', 'Vel Z', 'Jump (m)', 'Status']
+            table.setColumnCount(len(headers))
+            table.setHorizontalHeaderLabels(headers)
+            table.setRowCount(len(messages))
+
+            prev_pos = None
+            for i, msg_data in enumerate(messages):
+                msg = msg_data['message']
+                pos_x = msg.pose.pose.position.x
+                pos_y = msg.pose.pose.position.y
+                pos_z = msg.pose.pose.position.z
+                vel_x = msg.twist.twist.linear.x
+
+                table.setItem(i, 0, QTableWidgetItem(str(i+1)))
+                table.setItem(i, 1, QTableWidgetItem(f"{msg_data['timestamp']:.6f}"))
+                table.setItem(i, 2, QTableWidgetItem(f"{pos_x:.4f}"))
+                table.setItem(i, 3, QTableWidgetItem(f"{pos_y:.4f}"))
+                table.setItem(i, 4, QTableWidgetItem(f"{pos_z:.4f}"))
+                table.setItem(i, 5, QTableWidgetItem(f"{vel_x:.4f}"))
+                table.setItem(i, 6, QTableWidgetItem(f"{msg.twist.twist.linear.y:.4f}"))
+                table.setItem(i, 7, QTableWidgetItem(f"{msg.twist.twist.linear.z:.4f}"))
+
+                # Calculate position jump
+                jump = 0
+                if prev_pos:
+                    jump = np.sqrt((pos_x - prev_pos[0])**2 + (pos_y - prev_pos[1])**2 + (pos_z - prev_pos[2])**2)
+                table.setItem(i, 8, QTableWidgetItem(f"{jump:.4f}"))
+
+                # Conditional formatting
+                status_item = QTableWidgetItem()
+                if jump > 5.0:
+                    status_item.setText("⚠️ LARGE JUMP")
+                    status_item.setBackground(QBrush(QColor(254, 202, 202)))
+                    for col in range(9):
+                        table.item(i, col).setBackground(QBrush(QColor(254, 202, 202)))
+                elif vel_x < -1.0 or vel_x > 10.0:
+                    status_item.setText("⚠️ Bad Velocity")
+                    status_item.setBackground(QBrush(QColor(254, 243, 199)))
+                    for col in range(9):
+                        table.item(i, col).setBackground(QBrush(QColor(254, 243, 199)))
+                else:
+                    status_item.setText("✓ Normal")
+                    status_item.setBackground(QBrush(QColor(220, 252, 231)))
+
+                table.setItem(i, 9, status_item)
+                prev_pos = (pos_x, pos_y, pos_z)
+
+        elif 'Imu' in msg_type:
+            headers = ['#', 'Timestamp', 'Ang Vel X', 'Ang Vel Y', 'Ang Vel Z', 'Lin Acc X', 'Lin Acc Y', 'Lin Acc Z', 'Status']
+            table.setColumnCount(len(headers))
+            table.setHorizontalHeaderLabels(headers)
+            table.setRowCount(len(messages))
+
+            for i, msg_data in enumerate(messages):
+                msg = msg_data['message']
+                table.setItem(i, 0, QTableWidgetItem(str(i+1)))
+                table.setItem(i, 1, QTableWidgetItem(f"{msg_data['timestamp']:.6f}"))
+                table.setItem(i, 2, QTableWidgetItem(f"{msg.angular_velocity.x:.4f}"))
+                table.setItem(i, 3, QTableWidgetItem(f"{msg.angular_velocity.y:.4f}"))
+                table.setItem(i, 4, QTableWidgetItem(f"{msg.angular_velocity.z:.4f}"))
+                table.setItem(i, 5, QTableWidgetItem(f"{msg.linear_acceleration.x:.4f}"))
+                table.setItem(i, 6, QTableWidgetItem(f"{msg.linear_acceleration.y:.4f}"))
+                table.setItem(i, 7, QTableWidgetItem(f"{msg.linear_acceleration.z:.4f}"))
+
+                # Conditional formatting
+                status_item = QTableWidgetItem()
+                if abs(msg.angular_velocity.z) > 5.0:
+                    status_item.setText("⚠️ HIGH ANG VEL")
+                    status_item.setBackground(QBrush(QColor(254, 202, 202)))
+                    for col in range(8):
+                        table.item(i, col).setBackground(QBrush(QColor(254, 202, 202)))
+                elif abs(msg.linear_acceleration.x) > 20.0:
+                    status_item.setText("⚠️ HIGH ACCEL")
+                    status_item.setBackground(QBrush(QColor(254, 243, 199)))
+                    for col in range(8):
+                        table.item(i, col).setBackground(QBrush(QColor(254, 243, 199)))
+                else:
+                    status_item.setText("✓ Normal")
+                    status_item.setBackground(QBrush(QColor(220, 252, 231)))
+
+                table.setItem(i, 8, status_item)
+
+        else:
+            # Generic table for unknown message types
+            headers = ['#', 'Timestamp', 'Message']
+            table.setColumnCount(len(headers))
+            table.setHorizontalHeaderLabels(headers)
+            table.setRowCount(len(messages))
+
+            for i, msg_data in enumerate(messages):
+                table.setItem(i, 0, QTableWidgetItem(str(i+1)))
+                table.setItem(i, 1, QTableWidgetItem(f"{msg_data['timestamp']:.6f}"))
+                table.setItem(i, 2, QTableWidgetItem(str(msg_data['message'])[:100]))
+
+        # Configure table
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        return table
+
+    def filter_table(self, topic_name, search_text):
+        """Filter table rows based on search text"""
+        # Find the table widget
+        for widget in self.topic_tabs.findChildren(QTableWidget):
+            if widget.objectName() == f"table_{topic_name}":
+                for row in range(widget.rowCount()):
+                    should_show = False
+                    if not search_text:
+                        should_show = True
+                    else:
+                        # Search all columns
+                        for col in range(widget.columnCount()):
+                            item = widget.item(row, col)
+                            if item and search_text.lower() in item.text().lower():
+                                should_show = True
+                                break
+                    widget.setRowHidden(row, not should_show)
+                break
+
+    def toggle_anomaly_highlighting(self, topic_name, state):
+        """Toggle anomaly highlighting in table"""
+        # Find the table widget
+        for widget in self.topic_tabs.findChildren(QTableWidget):
+            if widget.objectName() == f"table_{topic_name}":
+                if state == Qt.Checked:
+                    # Re-apply conditional formatting (already done in create_topic_table)
+                    pass
+                else:
+                    # Remove highlighting
+                    for row in range(widget.rowCount()):
+                        for col in range(widget.columnCount()):
+                            item = widget.item(row, col)
+                            if item:
+                                item.setBackground(QBrush(QColor(255, 255, 255)))
+                break
+
+    def show_topic_statistics(self, topic_name):
+        """Show statistical analysis for the topic"""
+        topic_data = self.bag_data['topics'][topic_name]
+        msg_type = topic_data['type']
+        messages = topic_data['messages']
+
+        stats_text = []
+        stats_text.append(f"STATISTICAL ANALYSIS: {topic_name}")
+        stats_text.append("=" * 60)
+        stats_text.append(f"Message Type: {msg_type}")
+        stats_text.append(f"Total Messages: {len(messages)}")
+        stats_text.append(f"Frequency: {topic_data['frequency']:.2f} Hz")
+
+        if 'Twist' in msg_type:
+            linear_x = [msg['message'].linear.x for msg in messages]
+            angular_z = [msg['message'].angular.z for msg in messages]
+
+            stats_text.append("\nLinear X Statistics:")
+            stats_text.append(f"  Mean: {np.mean(linear_x):.4f}")
+            stats_text.append(f"  Std Dev: {np.std(linear_x):.4f}")
+            stats_text.append(f"  Min: {np.min(linear_x):.4f}")
+            stats_text.append(f"  Max: {np.max(linear_x):.4f}")
+
+            stats_text.append("\nAngular Z Statistics:")
+            stats_text.append(f"  Mean: {np.mean(angular_z):.4f}")
+            stats_text.append(f"  Std Dev: {np.std(angular_z):.4f}")
+            stats_text.append(f"  Min: {np.min(angular_z):.4f}")
+            stats_text.append(f"  Max: {np.max(angular_z):.4f}")
+
+        elif 'Odometry' in msg_type:
+            vel_x = [msg['message'].twist.twist.linear.x for msg in messages]
+            pos_x = [msg['message'].pose.pose.position.x for msg in messages]
+
+            stats_text.append("\nVelocity X Statistics:")
+            stats_text.append(f"  Mean: {np.mean(vel_x):.4f}")
+            stats_text.append(f"  Std Dev: {np.std(vel_x):.4f}")
+            stats_text.append(f"  Min: {np.min(vel_x):.4f}")
+            stats_text.append(f"  Max: {np.max(vel_x):.4f}")
+
+            stats_text.append("\nPosition X Statistics:")
+            stats_text.append(f"  Start: {pos_x[0]:.4f}")
+            stats_text.append(f"  End: {pos_x[-1]:.4f}")
+            stats_text.append(f"  Distance Traveled: {abs(pos_x[-1] - pos_x[0]):.4f}")
+
+        elif 'Imu' in msg_type:
+            ang_vel_z = [msg['message'].angular_velocity.z for msg in messages]
+            lin_acc_x = [msg['message'].linear_acceleration.x for msg in messages]
+
+            stats_text.append("\nAngular Velocity Z Statistics:")
+            stats_text.append(f"  Mean: {np.mean(ang_vel_z):.4f}")
+            stats_text.append(f"  Std Dev: {np.std(ang_vel_z):.4f}")
+            stats_text.append(f"  Min: {np.min(ang_vel_z):.4f}")
+            stats_text.append(f"  Max: {np.max(ang_vel_z):.4f}")
+
+            stats_text.append("\nLinear Acceleration X Statistics:")
+            stats_text.append(f"  Mean: {np.mean(lin_acc_x):.4f}")
+            stats_text.append(f"  Std Dev: {np.std(lin_acc_x):.4f}")
+            stats_text.append(f"  Min: {np.min(lin_acc_x):.4f}")
+            stats_text.append(f"  Max: {np.max(lin_acc_x):.4f}")
+
+        # Show in message box
+        QMessageBox.information(self, "Topic Statistics", "\n".join(stats_text))
+
+    def export_filtered_data(self, topic_name):
+        """Export currently filtered/visible data to CSV"""
+        # Find the table widget
+        table = None
+        for widget in self.topic_tabs.findChildren(QTableWidget):
+            if widget.objectName() == f"table_{topic_name}":
+                table = widget
+                break
+
+        if not table:
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Save Filtered {topic_name} CSV",
+            f"filtered_{topic_name.replace('/', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "CSV Files (*.csv)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'w', newline='') as f:
+                    writer = csv.writer(f)
+
+                    # Write header
+                    headers = []
+                    for col in range(table.columnCount()):
+                        headers.append(table.horizontalHeaderItem(col).text())
+                    writer.writerow(headers)
+
+                    # Write visible rows only
+                    for row in range(table.rowCount()):
+                        if not table.isRowHidden(row):
+                            row_data = []
+                            for col in range(table.columnCount()):
+                                item = table.item(row, col)
+                                row_data.append(item.text() if item else "")
+                            writer.writerow(row_data)
+
+                self.add_log(f"Filtered data exported to: {file_path}")
+                QMessageBox.information(self, "Success", f"Filtered data exported successfully")
+            except Exception as e:
+                self.add_log(f"Export error: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
 
     def create_attack_detection_widget(self):
         """Create attack detection widget with security analysis tools"""
