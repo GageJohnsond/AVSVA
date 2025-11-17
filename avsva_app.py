@@ -236,48 +236,43 @@ class VulnerabilityExecutor(QThread):
                 self.log_signal.emit("Attack process killed")
 
 
-class HorizontalTabStyle(QProxyStyle):
-    """ProxyStyle to keep tab text horizontal when tabs are on the left"""
-    def drawControl(self, element, option, painter, widget=None):
-        if element == QStyle.CE_TabBarTabLabel:
-            if isinstance(option, QStyleOptionTab):
-                # Check if tabs are vertical (West or East)
-                if option.shape in [QTabBar.RoundedWest, QTabBar.TriangularWest,
-                                   QTabBar.RoundedEast, QTabBar.TriangularEast]:
-                    # Don't rotate the painter - keep text horizontal
-                    painter.save()
-
-                    # Adjust the rectangle to account for tab orientation
-                    rect = option.rect
-
-                    # Draw the text horizontally
-                    alignment = Qt.AlignLeft | Qt.AlignVCenter
-                    painter.drawText(rect, alignment, option.text)
-
-                    painter.restore()
-                    return
-
-        # For everything else, use default drawing
-        super().drawControl(element, option, painter, widget)
-
-    def sizeFromContents(self, ct, opt, contentsSize, widget=None):
-        size = super().sizeFromContents(ct, opt, contentsSize, widget)
-        if ct == QStyle.CT_TabBarTab:
-            # Make tabs wider to accommodate horizontal text
-            if isinstance(opt, QStyleOptionTab):
-                if opt.shape in [QTabBar.RoundedWest, QTabBar.TriangularWest,
-                               QTabBar.RoundedEast, QTabBar.TriangularEast]:
-                    # Swap dimensions and make wider
-                    return QSize(max(180, size.height()), size.width())
-        return size
-
-
-class HorizontalTabBar(QTabWidget):
-    """TabWidget that keeps text horizontal even when tabs are on the left"""
+class VerticalTabBar(QTabBar):
+    """Custom QTabBar that draws text horizontally even when tabs are vertical"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Apply the custom style to keep text horizontal
-        self.tabBar().setStyle(HorizontalTabStyle())
+        
+    def paintEvent(self, event):
+        """Override paint event to draw horizontal text"""
+        painter = QStylePainter(self)
+        option = QStyleOptionTab()
+
+        for index in range(self.count()):
+            self.initStyleOption(option, index)
+            painter.drawControl(QStyle.CE_TabBarTabShape, option)
+            
+            # Draw the text horizontally
+            painter.save()
+            
+            # Get the tab rectangle
+            rect = self.tabRect(index)
+            
+            # Draw text horizontally (not rotated)
+            painter.drawText(rect, Qt.AlignCenter, self.tabText(index))
+            
+            painter.restore()
+            
+    def tabSizeHint(self, index):
+        """Provide size hint for horizontal text"""
+        size = super().tabSizeHint(index)
+        # For West-side tabs, swap width and height and make wider
+        return QSize(200, size.width())
+
+
+class HorizontalTabWidget(QTabWidget):
+    """TabWidget with horizontal text on vertical tabs"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setTabBar(VerticalTabBar(self))
 
 
 class VulnerabilityCard(QGroupBox):
@@ -648,7 +643,7 @@ while not rospy.is_shutdown():
         main_layout.addWidget(subtitle)
         
         # Create tab widget with tabs on left side (horizontal text)
-        self.tabs = HorizontalTabBar()
+        self.tabs = HorizontalTabWidget()
         self.tabs.setTabPosition(QTabWidget.West)  # Position tabs on the left
         main_layout.addWidget(self.tabs)
 
