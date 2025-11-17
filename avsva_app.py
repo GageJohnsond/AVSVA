@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTabWidget, QGroupBox, QGridLayout, QFileDialog,
                              QListWidget, QSplitter, QMessageBox, QProgressBar,
                              QComboBox, QScrollArea, QCheckBox, QTabBar, QStylePainter,
-                             QStyleOptionTab, QProxyStyle, QStyle, QSpinBox, QDoubleSpinBox)
+                             QStyleOptionTab, QProxyStyle, QSizePolicy, QStyle, QSpinBox, QDoubleSpinBox)
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QSize, QRect
 from PyQt5.QtGui import QFont, QColor, QPalette, QTransform
 
@@ -1279,131 +1279,140 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Vulnerability Injection")
     
     def create_analysis_tab(self):
-        """Enhanced analysis tab with dynamic attack detection"""
+        """Fixed layout: makes the three columns fill the entire tab height"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+
+        # Header
         header = QLabel("Bag File Analysis & Attack Detection")
-        header.setFont(QFont('Arial', 14, QFont.Bold))
-        header.setStyleSheet("color: #1f2937; margin-bottom: 10px;")
+        header.setFont(QFont('Arial', 16, QFont.Bold))
+        header.setStyleSheet("color: #1f2937;")
+        header.setAlignment(Qt.AlignCenter)
         layout.addWidget(header)
-        
+
+        # === THIS IS THE KEY FIX ===
+        # Create the splitter that holds the three columns
         main_splitter = QSplitter(Qt.Horizontal)
-        
-        # LEFT: Bag File List
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        
-        list_label = QLabel("Recorded Bags:")
-        list_label.setFont(QFont('Arial', 11, QFont.Bold))
-        left_layout.addWidget(list_label)
-        
-        self.bag_list = QListWidget()
-        self.bag_list.setStyleSheet("""
-            QListWidget {
-                border: 2px solid #d1d5db;
-                border-radius: 6px;
-                padding: 8px;
-                background-color: white;
-            }
-            QListWidget::item:selected {
-                background-color: #dbeafe;
-                color: #1e40af;
-            }
-        """)
-        self.bag_list.itemClicked.connect(self.load_bag_file)
-        left_layout.addWidget(self.bag_list)
-        
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setStyleSheet("background-color: #3b82f6; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold;")
-        refresh_btn.clicked.connect(self.refresh_bag_list)
-        left_layout.addWidget(refresh_btn)
-        
-        load_btn = QPushButton("📂 Load External")
-        load_btn.setStyleSheet("background-color: #6b7280; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold;")
-        load_btn.clicked.connect(self.load_external_bag)
-        left_layout.addWidget(load_btn)
-        
+        main_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        main_splitter.setHandleWidth(2)
+        main_splitter.setStyleSheet("QSplitter::handle { background: #e5e7eb; }")
+
+        # LEFT: Recorded Bags
+        left_widget = self.create_bag_list_panel()
         main_splitter.addWidget(left_widget)
-        
-        # MIDDLE: Configuration
-        middle_widget = QWidget()
-        middle_layout = QVBoxLayout(middle_widget)
-        
-        config_label = QLabel("Detection Config:")
-        config_label.setFont(QFont('Arial', 11, QFont.Bold))
-        middle_layout.addWidget(config_label)
-        
-        config_scroll = QScrollArea()
-        config_scroll.setWidgetResizable(True)
-        config_scroll.setStyleSheet("QScrollArea { border: 2px solid #d1d5db; border-radius: 6px; background-color: white; }")
-        
-        config_widget = QWidget()
-        self.config_layout = QVBoxLayout(config_widget)
-        self.config_layout.setSpacing(10)
-        
-        self.detection_thresholds = self.get_default_thresholds()
-        self.create_threshold_configs()
-        
-        self.config_layout.addStretch()
-        config_scroll.setWidget(config_widget)
-        middle_layout.addWidget(config_scroll)
-        
-        config_btn_layout = QHBoxLayout()
-        reset_btn = QPushButton("Reset")
-        reset_btn.setStyleSheet("background-color: #6b7280; color: white; padding: 8px; border-radius: 4px; font-weight: bold;")
-        reset_btn.clicked.connect(self.reset_thresholds)
-        config_btn_layout.addWidget(reset_btn)
-        
-        analyze_btn = QPushButton("🔍 Analyze")
-        analyze_btn.setStyleSheet("background-color: #059669; color: white; padding: 8px; border-radius: 4px; font-weight: bold;")
-        analyze_btn.clicked.connect(self.run_deep_analysis)
-        config_btn_layout.addWidget(analyze_btn)
-        middle_layout.addLayout(config_btn_layout)
-        
+
+        # MIDDLE: Detection Config
+        middle_widget = self.create_detection_config_panel()
         main_splitter.addWidget(middle_widget)
-        
+
         # RIGHT: Results
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        
-        analysis_label = QLabel("Results:")
-        analysis_label.setFont(QFont('Arial', 11, QFont.Bold))
-        right_layout.addWidget(analysis_label)
-        
-        analysis_tabs = QTabWidget()
-        
-        self.analysis_output = QTextEdit()
-        self.analysis_output.setReadOnly(True)
-        self.analysis_output.setStyleSheet("background-color: white; padding: 12px; font-family: 'Courier New'; font-size: 10pt;")
-        analysis_tabs.addTab(self.analysis_output, "Basic Info")
-        
-        self.attack_detection_output = QTextEdit()
-        self.attack_detection_output.setReadOnly(True)
-        self.attack_detection_output.setStyleSheet("background-color: white; padding: 12px; font-family: 'Courier New'; font-size: 10pt;")
-        analysis_tabs.addTab(self.attack_detection_output, "Attack Detection")
-        
-        self.timeline_output = QTextEdit()
-        self.timeline_output.setReadOnly(True)
-        self.timeline_output.setStyleSheet("background-color: white; padding: 12px; font-family: 'Courier New'; font-size: 10pt;")
-        analysis_tabs.addTab(self.timeline_output, "Timeline")
-        
-        right_layout.addWidget(analysis_tabs)
-        
-        export_btn = QPushButton("📄 Export")
-        export_btn.setStyleSheet("background-color: #2563eb; color: white; padding: 10px; border-radius: 6px; font-weight: bold;")
-        export_btn.clicked.connect(self.export_analysis)
-        right_layout.addWidget(export_btn)
-        
+        right_widget = self.create_results_panel()
         main_splitter.addWidget(right_widget)
+
+        # Critical: Set stretch factors so right panel gets more space
         main_splitter.setStretchFactor(0, 2)
         main_splitter.setStretchFactor(1, 3)
-        main_splitter.setStretchFactor(2, 5)
-        
-        layout.addWidget(main_splitter)
+        main_splitter.setStretchFactor(2, 6)
+
+        # This line is what fixes everything:
+        layout.addWidget(main_splitter, stretch=1)  # Takes ALL remaining vertical space
+
         self.refresh_bag_list()
         self.tabs.addTab(tab, "Analysis")
+
+    def create_bag_list_panel(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        label = QLabel("Recorded Bags:")
+        label.setFont(QFont('Arial', 11, QFont.Bold))
+        layout.addWidget(label)
+
+        self.bag_list = QListWidget()
+        self.bag_list.itemClicked.connect(self.load_bag_file)
+        self.bag_list.setStyleSheet("QListWidget { border: 1px solid #ccc; border-radius: 6px; }")
+        layout.addWidget(self.bag_list, stretch=1)
+
+        btn_layout = QHBoxLayout()
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.refresh_bag_list)
+        load_btn = QPushButton("Load External")
+        load_btn.clicked.connect(self.load_external_bag)
+        btn_layout.addWidget(refresh_btn)
+        btn_layout.addWidget(load_btn)
+        layout.addLayout(btn_layout)
+
+        return widget
+
+    def create_detection_config_panel(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        label = QLabel("Detection Config:")
+        label.setFont(QFont('Arial', 11, QFont.Bold))
+        layout.addWidget(label)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: 1px solid #ccc; border-radius: 6px; }")
+
+        config_container = QWidget()
+        self.config_layout = QVBoxLayout(config_container)
+        self.detection_thresholds = self.get_default_thresholds()
+        self.create_threshold_configs()
+        self.config_layout.addStretch(1)
+
+        scroll.setWidget(config_container)
+        layout.addWidget(scroll, stretch=1)
+
+        btn_layout = QHBoxLayout()
+        reset_btn = QPushButton("Reset")
+        reset_btn.clicked.connect(self.reset_thresholds)
+        analyze_btn = QPushButton("Analyze")
+        analyze_btn.setStyleSheet("background-color: #059669; color: white; font-weight: bold;")
+        analyze_btn.clicked.connect(self.run_deep_analysis)
+        btn_layout.addWidget(reset_btn)
+        btn_layout.addWidget(analyze_btn)
+        layout.addLayout(btn_layout)
+
+        return widget
+
+    def create_results_panel(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        label = QLabel("Results:")
+        label.setFont(QFont('Arial', 11, QFont.Bold))
+        layout.addWidget(label)
+
+        tabs = QTabWidget()
+        self.analysis_output = QTextEdit()
+        self.analysis_output.setReadOnly(True)
+        self.attack_detection_output = QTextEdit()
+        self.attack_detection_output.setReadOnly(True)
+        self.timeline_output = QTextEdit()
+        self.timeline_output.setReadOnly(True)
+
+        tabs.addTab(self.analysis_output, "Basic Info")
+        tabs.addTab(self.attack_detection_output, "Attack Detection")
+        tabs.addTab(self.timeline_output, "Timeline")
+
+        layout.addWidget(tabs, stretch=1)
+
+        export_btn = QPushButton("Export")
+        export_btn.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold;")
+        export_btn.clicked.connect(self.export_analysis)
+        layout.addWidget(export_btn)
+
+        return widget
 
     def create_report_tab(self):
         """Create the report generation tab"""
