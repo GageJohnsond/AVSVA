@@ -9,12 +9,17 @@ import os
 import subprocess
 import signal
 from datetime import datetime
+import csv
+import numpy as np
+import rosbag
+from collections import defaultdict
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QTextEdit,
                              QTabWidget, QGroupBox, QGridLayout, QFileDialog,
                              QListWidget, QSplitter, QMessageBox, QProgressBar,
                              QComboBox, QScrollArea, QCheckBox, QTabBar, QStylePainter,
-                             QStyleOptionTab, QProxyStyle, QSizePolicy, QStyle, QSpinBox, QDoubleSpinBox)
+                             QStyleOptionTab, QProxyStyle, QSizePolicy, QStyle, QSpinBox,
+                             QDoubleSpinBox, QInputDialog)
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QSize, QRect
 from PyQt5.QtGui import QFont, QColor, QPalette, QTransform
 
@@ -1279,140 +1284,663 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Vulnerability Injection")
     
     def create_analysis_tab(self):
-        """Fixed layout: makes the three columns fill the entire tab height"""
+        """Create analysis tab with bag loading and topic-based analysis"""
         tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        main_layout = QVBoxLayout(tab)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
 
-        # Header
-        header = QLabel("Bag File Analysis & Attack Detection")
-        header.setFont(QFont('Arial', 16, QFont.Bold))
-        header.setStyleSheet("color: #1f2937;")
-        header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
+        # Initialize state variables
+        self.current_bag_path = None
+        self.bag_data = {}
+        self.topic_tabs = None
 
-        # === THIS IS THE KEY FIX ===
-        # Create the splitter that holds the three columns
-        main_splitter = QSplitter(Qt.Horizontal)
-        main_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_splitter.setHandleWidth(2)
-        main_splitter.setStyleSheet("QSplitter::handle { background: #e5e7eb; }")
+        # Load Bag Section
+        load_section = QGroupBox("Load Bag File")
+        load_section.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px;
+                background-color: white;
+            }
+        """)
+        load_layout = QVBoxLayout()
 
-        # LEFT: Recorded Bags
-        left_widget = self.create_bag_list_panel()
-        main_splitter.addWidget(left_widget)
+        # Bag file selector
+        file_layout = QHBoxLayout()
+        self.bag_file_label = QLabel("No bag file loaded")
+        self.bag_file_label.setStyleSheet("color: #6b7280; font-weight: normal;")
+        file_layout.addWidget(self.bag_file_label)
+        file_layout.addStretch()
 
-        # MIDDLE: Detection Config
-        middle_widget = self.create_detection_config_panel()
-        main_splitter.addWidget(middle_widget)
+        load_recorded_btn = QPushButton("Load Recorded Bag")
+        load_recorded_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+        load_recorded_btn.clicked.connect(self.select_recorded_bag)
+        file_layout.addWidget(load_recorded_btn)
 
-        # RIGHT: Results
-        right_widget = self.create_results_panel()
-        main_splitter.addWidget(right_widget)
+        load_external_btn = QPushButton("Load External Bag")
+        load_external_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #047857; }
+        """)
+        load_external_btn.clicked.connect(self.select_external_bag)
+        file_layout.addWidget(load_external_btn)
 
-        # Critical: Set stretch factors so right panel gets more space
-        main_splitter.setStretchFactor(0, 2)
-        main_splitter.setStretchFactor(1, 3)
-        main_splitter.setStretchFactor(2, 6)
+        load_layout.addLayout(file_layout)
+        load_section.setLayout(load_layout)
+        main_layout.addWidget(load_section)
 
-        # This line is what fixes everything:
-        layout.addWidget(main_splitter, stretch=1)  # Takes ALL remaining vertical space
+        # Analysis content area (will hold topic tabs after bag is loaded)
+        self.analysis_content = QWidget()
+        self.analysis_content_layout = QVBoxLayout(self.analysis_content)
+        self.analysis_content_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.refresh_bag_list()
+        # Initial message
+        self.no_bag_label = QLabel("Load a bag file to begin analysis")
+        self.no_bag_label.setAlignment(Qt.AlignCenter)
+        self.no_bag_label.setStyleSheet("color: #9ca3af; font-size: 16px; padding: 40px;")
+        self.analysis_content_layout.addWidget(self.no_bag_label)
+
+        main_layout.addWidget(self.analysis_content, 1)
+
         self.tabs.addTab(tab, "Analysis")
 
-    def create_bag_list_panel(self):
+    def select_recorded_bag(self):
+        """Show dialog to select from recorded bags"""
+        bags_dir = os.path.join(os.path.dirname(__file__), 'recorded_bags')
+        if not os.path.exists(bags_dir):
+            QMessageBox.warning(self, "No Bags", "No recorded bags directory found")
+            return
+
+        bags = [f for f in os.listdir(bags_dir) if f.endswith('.bag')]
+        if not bags:
+            QMessageBox.warning(self, "No Bags", "No bag files found in recorded_bags/")
+            return
+
+        from PyQt5.QtWidgets import QInputDialog
+        bag_name, ok = QInputDialog.getItem(self, "Select Bag", "Choose a bag file:", bags, 0, False)
+        if ok and bag_name:
+            bag_path = os.path.join(bags_dir, bag_name)
+            self.load_and_parse_bag(bag_path)
+
+    def select_external_bag(self):
+        """Show file dialog to select external bag file"""
+        bag_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Bag File",
+            os.path.expanduser("~"),
+            "ROS Bag Files (*.bag)"
+        )
+        if bag_path:
+            self.load_and_parse_bag(bag_path)
+
+    def load_and_parse_bag(self, bag_path):
+        """Load and parse bag file, then create topic tabs"""
+        try:
+            self.add_log(f"Loading bag file: {bag_path}")
+            self.current_bag_path = bag_path
+            self.bag_file_label.setText(f"Loaded: {os.path.basename(bag_path)}")
+
+            # Parse bag file
+            bag = rosbag.Bag(bag_path)
+            self.bag_data = {
+                'path': bag_path,
+                'topics': {},
+                'start_time': None,
+                'end_time': None,
+                'duration': 0,
+                'message_count': 0
+            }
+
+            # Get bag info
+            info = bag.get_type_and_topic_info()
+            self.bag_data['start_time'] = bag.get_start_time()
+            self.bag_data['end_time'] = bag.get_end_time()
+            self.bag_data['duration'] = self.bag_data['end_time'] - self.bag_data['start_time']
+
+            # Extract topic information and messages
+            for topic_name, topic_info in info.topics.items():
+                self.bag_data['topics'][topic_name] = {
+                    'type': topic_info.msg_type,
+                    'message_count': topic_info.message_count,
+                    'frequency': topic_info.message_count / self.bag_data['duration'] if self.bag_data['duration'] > 0 else 0,
+                    'messages': []
+                }
+                self.bag_data['message_count'] += topic_info.message_count
+
+            # Read all messages
+            for topic, msg, t in bag.read_messages():
+                self.bag_data['topics'][topic]['messages'].append({
+                    'timestamp': t.to_sec(),
+                    'message': msg
+                })
+
+            bag.close()
+
+            self.add_log(f"Bag loaded: {len(self.bag_data['topics'])} topics, {self.bag_data['message_count']} messages")
+
+            # Create topic tabs
+            self.create_topic_tabs()
+
+        except Exception as e:
+            self.add_log(f"Error loading bag file: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to load bag file:\n{str(e)}")
+
+    def create_topic_tabs(self):
+        """Create tabs for each topic in the loaded bag"""
+        # Remove old content
+        if self.no_bag_label:
+            self.no_bag_label.setParent(None)
+            self.no_bag_label = None
+
+        if self.topic_tabs:
+            self.topic_tabs.setParent(None)
+
+        # Create new tab widget for topics
+        self.topic_tabs = QTabWidget()
+        self.topic_tabs.setTabPosition(QTabWidget.North)
+
+        # Add a tab for each topic
+        for topic_name in sorted(self.bag_data['topics'].keys()):
+            topic_widget = self.create_topic_analysis_widget(topic_name)
+            # Clean up topic name for tab label
+            tab_label = topic_name.replace('/', '').replace('_', ' ').title()
+            if len(tab_label) > 25:
+                tab_label = tab_label[:22] + "..."
+            self.topic_tabs.addTab(topic_widget, tab_label)
+
+        # Add overview tab
+        overview_widget = self.create_overview_widget()
+        self.topic_tabs.insertTab(0, overview_widget, "Overview")
+
+        # Add attack detection tab
+        attack_widget = self.create_attack_detection_widget()
+        self.topic_tabs.addTab(attack_widget, "Attack Detection")
+
+        self.analysis_content_layout.addWidget(self.topic_tabs)
+
+    def create_overview_widget(self):
+        """Create overview widget showing bag file summary"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(20, 20, 20, 20)
 
-        label = QLabel("Recorded Bags:")
-        label.setFont(QFont('Arial', 11, QFont.Bold))
-        layout.addWidget(label)
+        # Summary info
+        summary = QTextEdit()
+        summary.setReadOnly(True)
+        summary.setStyleSheet("""
+            QTextEdit {
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                padding: 12px;
+                font-family: 'Courier New', monospace;
+            }
+        """)
 
-        self.bag_list = QListWidget()
-        self.bag_list.itemClicked.connect(self.load_bag_file)
-        self.bag_list.setStyleSheet("QListWidget { border: 1px solid #ccc; border-radius: 6px; }")
-        layout.addWidget(self.bag_list, stretch=1)
+        summary_text = []
+        summary_text.append("=" * 80)
+        summary_text.append("BAG FILE SUMMARY")
+        summary_text.append("=" * 80)
+        summary_text.append(f"\nFile: {os.path.basename(self.bag_data['path'])}")
+        summary_text.append(f"Duration: {self.bag_data['duration']:.2f} seconds")
+        summary_text.append(f"Start Time: {datetime.fromtimestamp(self.bag_data['start_time']).strftime('%Y-%m-%d %H:%M:%S')}")
+        summary_text.append(f"End Time: {datetime.fromtimestamp(self.bag_data['end_time']).strftime('%Y-%m-%d %H:%M:%S')}")
+        summary_text.append(f"Total Messages: {self.bag_data['message_count']}")
+        summary_text.append(f"\n{'Topic':<40} {'Type':<30} {'Count':<10} {'Hz':<10}")
+        summary_text.append("-" * 90)
 
-        btn_layout = QHBoxLayout()
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self.refresh_bag_list)
-        load_btn = QPushButton("Load External")
-        load_btn.clicked.connect(self.load_external_bag)
-        btn_layout.addWidget(refresh_btn)
-        btn_layout.addWidget(load_btn)
-        layout.addLayout(btn_layout)
+        for topic_name, topic_data in sorted(self.bag_data['topics'].items()):
+            summary_text.append(f"{topic_name:<40} {topic_data['type']:<30} {topic_data['message_count']:<10} {topic_data['frequency']:<10.2f}")
 
-        return widget
+        summary.setPlainText("\n".join(summary_text))
+        layout.addWidget(summary)
 
-    def create_detection_config_panel(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        label = QLabel("Detection Config:")
-        label.setFont(QFont('Arial', 11, QFont.Bold))
-        layout.addWidget(label)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: 1px solid #ccc; border-radius: 6px; }")
-
-        config_container = QWidget()
-        self.config_layout = QVBoxLayout(config_container)
-        self.detection_thresholds = self.get_default_thresholds()
-        self.create_threshold_configs()
-        self.config_layout.addStretch(1)
-
-        scroll.setWidget(config_container)
-        layout.addWidget(scroll, stretch=1)
-
-        btn_layout = QHBoxLayout()
-        reset_btn = QPushButton("Reset")
-        reset_btn.clicked.connect(self.reset_thresholds)
-        analyze_btn = QPushButton("Analyze")
-        analyze_btn.setStyleSheet("background-color: #059669; color: white; font-weight: bold;")
-        analyze_btn.clicked.connect(self.run_deep_analysis)
-        btn_layout.addWidget(reset_btn)
-        btn_layout.addWidget(analyze_btn)
-        layout.addLayout(btn_layout)
-
-        return widget
-
-    def create_results_panel(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        label = QLabel("Results:")
-        label.setFont(QFont('Arial', 11, QFont.Bold))
-        layout.addWidget(label)
-
-        tabs = QTabWidget()
-        self.analysis_output = QTextEdit()
-        self.analysis_output.setReadOnly(True)
-        self.attack_detection_output = QTextEdit()
-        self.attack_detection_output.setReadOnly(True)
-        self.timeline_output = QTextEdit()
-        self.timeline_output.setReadOnly(True)
-
-        tabs.addTab(self.analysis_output, "Basic Info")
-        tabs.addTab(self.attack_detection_output, "Attack Detection")
-        tabs.addTab(self.timeline_output, "Timeline")
-
-        layout.addWidget(tabs, stretch=1)
-
-        export_btn = QPushButton("Export")
-        export_btn.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold;")
-        export_btn.clicked.connect(self.export_analysis)
+        # Export button
+        export_btn = QPushButton("Export Overview to CSV")
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                padding: 10px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+        export_btn.clicked.connect(self.export_overview_csv)
         layout.addWidget(export_btn)
 
         return widget
+
+    def create_topic_analysis_widget(self, topic_name):
+        """Create analysis widget for a specific topic"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        topic_data = self.bag_data['topics'][topic_name]
+
+        # Topic info
+        info_text = QLabel(f"Topic: {topic_name} | Type: {topic_data['type']} | Messages: {topic_data['message_count']} | Frequency: {topic_data['frequency']:.2f} Hz")
+        info_text.setStyleSheet("font-weight: bold; padding: 10px; background-color: #f3f4f6; border-radius: 6px;")
+        layout.addWidget(info_text)
+
+        # Message viewer
+        viewer = QTextEdit()
+        viewer.setReadOnly(True)
+        viewer.setStyleSheet("""
+            QTextEdit {
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                padding: 12px;
+                font-family: 'Courier New', monospace;
+                font-size: 10pt;
+            }
+        """)
+
+        # Show first 50 messages
+        messages_to_show = topic_data['messages'][:50]
+        message_text = []
+        for i, msg_data in enumerate(messages_to_show):
+            message_text.append(f"[{i+1}] Time: {msg_data['timestamp']:.6f}")
+            message_text.append(str(msg_data['message']))
+            message_text.append("-" * 80)
+
+        if len(topic_data['messages']) > 50:
+            message_text.append(f"\n... ({len(topic_data['messages']) - 50} more messages)")
+
+        viewer.setPlainText("\n".join(message_text))
+        layout.addWidget(viewer)
+
+        # Export button
+        export_btn = QPushButton(f"Export {topic_name} to CSV")
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: white;
+                padding: 10px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #047857; }
+        """)
+        export_btn.clicked.connect(lambda: self.export_topic_csv(topic_name))
+        layout.addWidget(export_btn)
+
+        return widget
+
+    def create_attack_detection_widget(self):
+        """Create attack detection widget with security analysis tools"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Header
+        header = QLabel("Security Analysis & Attack Detection")
+        header.setFont(QFont('Arial', 14, QFont.Bold))
+        header.setStyleSheet("color: #1f2937; margin-bottom: 10px;")
+        layout.addWidget(header)
+
+        # Run analysis button
+        analyze_btn = QPushButton("Run Security Analysis")
+        analyze_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc2626;
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12pt;
+            }
+            QPushButton:hover { background-color: #b91c1c; }
+        """)
+        analyze_btn.clicked.connect(self.run_security_analysis)
+        layout.addWidget(analyze_btn)
+
+        # Results area
+        self.attack_results = QTextEdit()
+        self.attack_results.setReadOnly(True)
+        self.attack_results.setStyleSheet("""
+            QTextEdit {
+                background-color: #f9fafb;
+                border: 2px solid #e5e7eb;
+                border-radius: 6px;
+                padding: 15px;
+                font-family: 'Courier New', monospace;
+                font-size: 10pt;
+            }
+        """)
+        self.attack_results.setPlainText("Click 'Run Security Analysis' to detect attacks in the loaded bag file...")
+        layout.addWidget(self.attack_results)
+
+        return widget
+
+    def run_security_analysis(self):
+        """Run comprehensive security analysis on bag data"""
+        if not self.bag_data:
+            QMessageBox.warning(self, "No Data", "Please load a bag file first")
+            return
+
+        self.add_log("Running security analysis...")
+        results = []
+        results.append("=" * 80)
+        results.append("SECURITY ANALYSIS REPORT")
+        results.append("=" * 80)
+        results.append(f"\nAnalyzed: {os.path.basename(self.bag_data['path'])}")
+        results.append(f"Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+        # Detect CMD_VEL attack
+        results.extend(self.detect_cmd_vel_attack())
+
+        # Detect odometry spoofing
+        results.extend(self.detect_odom_spoofing())
+
+        # Detect IMU spoofing
+        results.extend(self.detect_imu_spoofing())
+
+        # Detect parameter manipulation
+        results.extend(self.detect_param_manipulation())
+
+        # Detect node shutdown
+        results.extend(self.detect_node_shutdown())
+
+        # General anomaly detection
+        results.extend(self.detect_anomalies())
+
+        results.append("\n" + "=" * 80)
+        results.append("END OF SECURITY ANALYSIS")
+        results.append("=" * 80)
+
+        self.attack_results.setPlainText("\n".join(results))
+        self.add_log("Security analysis complete")
+
+    def detect_cmd_vel_attack(self):
+        """Detect CMD_VEL topic injection attacks"""
+        results = ["\n[1] CMD_VEL INJECTION ATTACK DETECTION"]
+        results.append("-" * 80)
+
+        cmd_vel_topic = '/husky_velocity_controller/cmd_vel'
+        if cmd_vel_topic not in self.bag_data['topics']:
+            results.append("✓ No cmd_vel topic found - no injection detected")
+            return results
+
+        messages = self.bag_data['topics'][cmd_vel_topic]['messages']
+        if len(messages) == 0:
+            results.append("✓ No cmd_vel messages - no injection detected")
+            return results
+
+        # Check for rapid direction changes (attack signature)
+        direction_changes = 0
+        prev_linear = None
+        prev_angular = None
+        spin_detected = False
+
+        for msg_data in messages:
+            msg = msg_data['message']
+            linear = msg.linear.x
+            angular = msg.angular.z
+
+            # Detect spin attack (linear=0, high angular velocity)
+            if abs(linear) < 0.1 and abs(angular) > 1.5:
+                spin_detected = True
+
+            if prev_linear is not None:
+                # Detect abrupt changes
+                if abs(linear - prev_linear) > 0.5:
+                    direction_changes += 1
+                if abs(angular - prev_angular) > 1.0:
+                    direction_changes += 1
+
+            prev_linear = linear
+            prev_angular = angular
+
+        # Determine attack presence
+        if spin_detected:
+            results.append("⚠️  ATTACK DETECTED: Spin attack pattern identified")
+            results.append(f"    - Detected: linear.x ≈ 0, angular.z > 1.5 (forced spin)")
+        elif direction_changes > len(messages) * 0.3:
+            results.append("⚠️  POSSIBLE ATTACK: High rate of direction changes")
+            results.append(f"    - Direction changes: {direction_changes}/{len(messages)} messages")
+        else:
+            results.append("✓ No cmd_vel injection attack detected")
+
+        return results
+
+    def detect_odom_spoofing(self):
+        """Detect odometry spoofing attacks"""
+        results = ["\n[2] ODOMETRY SPOOFING DETECTION"]
+        results.append("-" * 80)
+
+        odom_topic = '/husky_velocity_controller/odom'
+        if odom_topic not in self.bag_data['topics']:
+            results.append("✓ No odometry topic found")
+            return results
+
+        messages = self.bag_data['topics'][odom_topic]['messages']
+        if len(messages) < 10:
+            results.append("✓ Insufficient odometry data")
+            return results
+
+        # Check for unrealistic jumps in position
+        positions = []
+        for msg_data in messages:
+            msg = msg_data['message']
+            positions.append((msg.pose.pose.position.x, msg.pose.pose.position.y))
+
+        max_jump = 0
+        for i in range(1, len(positions)):
+            dx = positions[i][0] - positions[i-1][0]
+            dy = positions[i][1] - positions[i-1][1]
+            jump = np.sqrt(dx**2 + dy**2)
+            max_jump = max(max_jump, jump)
+
+        # Check for negative or excessive velocities (attack signature)
+        suspicious_velocities = 0
+        for msg_data in messages:
+            msg = msg_data['message']
+            vel = msg.twist.twist.linear.x
+            if vel < -1.0 or vel > 10.0:  # Unrealistic velocities
+                suspicious_velocities += 1
+
+        if max_jump > 5.0:
+            results.append(f"⚠️  ATTACK DETECTED: Unrealistic position jump ({max_jump:.2f}m)")
+        elif suspicious_velocities > 0:
+            results.append(f"⚠️  SUSPICIOUS: {suspicious_velocities} messages with unrealistic velocities")
+        else:
+            results.append("✓ No odometry spoofing detected")
+
+        return results
+
+    def detect_imu_spoofing(self):
+        """Detect IMU data spoofing"""
+        results = ["\n[3] IMU SPOOFING DETECTION"]
+        results.append("-" * 80)
+
+        imu_topic = '/imu/data'
+        if imu_topic not in self.bag_data['topics']:
+            results.append("✓ No IMU topic found")
+            return results
+
+        messages = self.bag_data['topics'][imu_topic]['messages']
+        if len(messages) == 0:
+            results.append("✓ No IMU messages")
+            return results
+
+        # Check for unrealistic angular velocities and accelerations
+        high_angular_vel = 0
+        high_accel = 0
+
+        for msg_data in messages:
+            msg = msg_data['message']
+
+            # Check angular velocity
+            if abs(msg.angular_velocity.z) > 5.0:
+                high_angular_vel += 1
+
+            # Check linear acceleration
+            if abs(msg.linear_acceleration.x) > 20.0:
+                high_accel += 1
+
+        if high_angular_vel > len(messages) * 0.1:
+            results.append(f"⚠️  ATTACK DETECTED: Excessive angular velocities ({high_angular_vel} messages)")
+        elif high_accel > len(messages) * 0.1:
+            results.append(f"⚠️  ATTACK DETECTED: Excessive accelerations ({high_accel} messages)")
+        else:
+            results.append("✓ No IMU spoofing detected")
+
+        return results
+
+    def detect_param_manipulation(self):
+        """Detect parameter manipulation by analyzing message patterns"""
+        results = ["\n[4] PARAMETER MANIPULATION DETECTION"]
+        results.append("-" * 80)
+
+        # Look for sudden changes in cmd_vel that might indicate parameter changes
+        cmd_vel_topic = '/husky_velocity_controller/cmd_vel'
+        if cmd_vel_topic not in self.bag_data['topics']:
+            results.append("✓ No cmd_vel data to analyze")
+            return results
+
+        messages = self.bag_data['topics'][cmd_vel_topic]['messages']
+        if len(messages) < 20:
+            results.append("✓ Insufficient data")
+            return results
+
+        # Detect sudden speed changes that might indicate parameter tampering
+        speeds = [msg_data['message'].linear.x for msg_data in messages]
+        speed_changes = []
+        for i in range(1, len(speeds)):
+            change = abs(speeds[i] - speeds[i-1])
+            if change > 2.0:  # Sudden change
+                speed_changes.append((i, change))
+
+        if len(speed_changes) > 3:
+            results.append(f"⚠️  SUSPICIOUS: {len(speed_changes)} sudden speed changes detected")
+            results.append("    - May indicate parameter manipulation attack")
+        else:
+            results.append("✓ No clear parameter manipulation detected")
+
+        return results
+
+    def detect_node_shutdown(self):
+        """Detect node shutdown attacks by analyzing message gaps"""
+        results = ["\n[5] NODE SHUTDOWN DETECTION"]
+        results.append("-" * 80)
+
+        # Check for large gaps in message timestamps across all topics
+        max_gap = 0
+        gap_topic = None
+
+        for topic_name, topic_data in self.bag_data['topics'].items():
+            messages = topic_data['messages']
+            if len(messages) < 2:
+                continue
+
+            for i in range(1, len(messages)):
+                gap = messages[i]['timestamp'] - messages[i-1]['timestamp']
+                if gap > max_gap:
+                    max_gap = gap
+                    gap_topic = topic_name
+
+        # If there's a gap > 2 seconds, might indicate shutdown
+        if max_gap > 2.0:
+            results.append(f"⚠️  SUSPICIOUS: {max_gap:.2f}s gap detected in {gap_topic}")
+            results.append("    - May indicate node shutdown attack")
+        else:
+            results.append("✓ No node shutdown detected")
+
+        return results
+
+    def detect_anomalies(self):
+        """General anomaly detection"""
+        results = ["\n[6] GENERAL ANOMALY DETECTION"]
+        results.append("-" * 80)
+
+        # Check for topics with very low frequency (might be spoofed)
+        low_freq_topics = []
+        for topic_name, topic_data in self.bag_data['topics'].items():
+            if topic_data['frequency'] < 1.0 and topic_data['message_count'] > 5:
+                low_freq_topics.append(f"{topic_name} ({topic_data['frequency']:.2f} Hz)")
+
+        if low_freq_topics:
+            results.append(f"⚠️  Low frequency topics detected: {', '.join(low_freq_topics)}")
+        else:
+            results.append("✓ No frequency anomalies detected")
+
+        return results
+
+    def export_overview_csv(self):
+        """Export bag overview to CSV"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Overview CSV",
+            f"bag_overview_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "CSV Files (*.csv)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['Topic', 'Type', 'Message Count', 'Frequency (Hz)'])
+                    for topic_name, topic_data in sorted(self.bag_data['topics'].items()):
+                        writer.writerow([topic_name, topic_data['type'], topic_data['message_count'], f"{topic_data['frequency']:.2f}"])
+
+                self.add_log(f"Overview exported to: {file_path}")
+                QMessageBox.information(self, "Success", f"Overview exported successfully")
+            except Exception as e:
+                self.add_log(f"Export error: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
+
+    def export_topic_csv(self, topic_name):
+        """Export topic data to CSV"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Save {topic_name} CSV",
+            f"topic_{topic_name.replace('/', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "CSV Files (*.csv)"
+        )
+
+        if file_path:
+            try:
+                topic_data = self.bag_data['topics'][topic_name]
+                with open(file_path, 'w', newline='') as f:
+                    writer = csv.writer(f)
+
+                    # Write header
+                    writer.writerow(['Timestamp', 'Message'])
+
+                    # Write data
+                    for msg_data in topic_data['messages']:
+                        writer.writerow([msg_data['timestamp'], str(msg_data['message'])])
+
+                self.add_log(f"Topic {topic_name} exported to: {file_path}")
+                QMessageBox.information(self, "Success", f"Topic data exported successfully")
+            except Exception as e:
+                self.add_log(f"Export error: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
 
     def create_report_tab(self):
         """Create the report generation tab"""
