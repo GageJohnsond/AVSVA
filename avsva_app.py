@@ -430,11 +430,10 @@ class VulnerabilityCard(QGroupBox):
         """)
     
     def stop_attack(self):
-
         if self.executor:
             self.executor.stop()
             self.executor.wait()
-        
+
         self.active = False
         self.execute_btn.setText("Execute Attack")
         self.execute_btn.setStyleSheet("""
@@ -450,7 +449,15 @@ class VulnerabilityCard(QGroupBox):
             QPushButton:hover {
                 background-color: #b91c1c;
             }
-        
+        """)
+
+class ThresholdConfigurator(QGroupBox):
+    def __init__(self, thresholds, parent=None):
+        super().__init__("Detection Thresholds", parent)
+        self.thresholds = thresholds
+        self.threshold_widgets = {}
+
+        self.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
                 border: 2px solid #e5e7eb;
@@ -464,12 +471,8 @@ class VulnerabilityCard(QGroupBox):
                 left: 10px;
                 padding: 0 5px;
             }
-            QGroupBox::indicator {
-                width: 16px;
-                height: 16px;
-            }
         """)
-        
+
         self.init_ui()
     
     def init_ui(self):
@@ -1208,7 +1211,7 @@ while not rospy.is_shutdown():
                 left: 10px;
                 padding: 0 5px 0 5px;
             }
-        
+
             QTextEdit {
                 background-color: #1f2937;
                 color: #10b981;
@@ -1219,6 +1222,12 @@ while not rospy.is_shutdown():
                 padding: 8px;
             }
         """)
+
+        log_layout = QVBoxLayout()
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setMaximumHeight(200)
         log_layout.addWidget(self.log_output)
         
         clear_log_btn = QPushButton("Clear Log")
@@ -1336,7 +1345,12 @@ while not rospy.is_shutdown():
                 font-weight: bold;
             }
             QPushButton:hover { background-color: #4f46e5; }
-        
+        """)
+        discover_btn.clicked.connect(self.discover_topics)
+        topic_layout.addWidget(discover_btn)
+
+        self.topic_combo = QComboBox()
+        self.topic_combo.setStyleSheet("""
             QComboBox {
                 padding: 8px;
                 border: 2px solid #d1d5db;
