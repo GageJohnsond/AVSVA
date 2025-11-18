@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""
-Node Shutdown Attack
-Uses ROS XMLRPC API to remotely shutdown critical nodes
-"""
 
 import rospy
 import xmlrpc.client
 import sys
 
 def node_shutdown_attack():
-    """Execute node shutdown attack"""
+
     try:
         rospy.init_node('shutdown_attacker', anonymous=True)
         

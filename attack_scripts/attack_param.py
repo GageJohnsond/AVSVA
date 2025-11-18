@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""
-Parameter Server Manipulation Attack
-Modifies critical runtime parameters to cause dangerous behavior
-"""
 
 import rospy
 import time
 
 def param_manipulation_attack():
-    """Execute parameter manipulation attack"""
+
     try:
         rospy.init_node('param_attacker', anonymous=True)
         

@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-AVSVA - Autonomous Vehicle Simulation and Vulnerability Analyzer
-A comprehensive tool for demonstrating and analyzing ROS vulnerabilities
-"""
 
 import sys
 import os
@@ -31,9 +27,8 @@ from sensor_msgs.msg import Imu
 import xmlrpc.client
 import json
 
-
 class SimulationController(QThread):
-    """Thread to control the simulation launch"""
+
     log_signal = pyqtSignal(str)
     status_signal = pyqtSignal(bool)
     
@@ -43,7 +38,7 @@ class SimulationController(QThread):
         self.running = False
         
     def run(self):
-        """Launch the simulation"""
+
         try:
             script_path = os.path.join(os.path.dirname(__file__), 'simulation_scripts', 'launch_husky_auto_drive.sh')
             
@@ -82,7 +77,7 @@ class SimulationController(QThread):
             self.status_signal.emit(False)
     
     def stop(self):
-        """Stop the simulation"""
+
         self.running = False
         if self.process:
             try:
@@ -98,9 +93,8 @@ class SimulationController(QThread):
                     pass
         self.status_signal.emit(False)
 
-
 class BagRecorder(QThread):
-    """Thread to record ROS bag files"""
+
     log_signal = pyqtSignal(str)
     status_signal = pyqtSignal(bool)
     
@@ -111,7 +105,7 @@ class BagRecorder(QThread):
         self.bag_filename = None
         
     def run(self):
-        """Start recording"""
+
         try:
             # Create bags directory if it doesn't exist
             bags_dir = os.path.join(os.path.dirname(__file__), 'recorded_bags')
@@ -154,7 +148,7 @@ class BagRecorder(QThread):
             self.status_signal.emit(False)
     
     def stop(self):
-        """Stop recording"""
+
         self.recording = False
         if self.process:
             try:
@@ -167,9 +161,8 @@ class BagRecorder(QThread):
                 self.process.kill()
         self.status_signal.emit(False)
 
-
 class VulnerabilityExecutor(QThread):
-    """Thread to execute vulnerability attacks by launching attack scripts"""
+
     log_signal = pyqtSignal(str)
 
     def __init__(self, vuln_id):
@@ -188,7 +181,7 @@ class VulnerabilityExecutor(QThread):
         }
 
     def run(self):
-        """Execute the vulnerability by launching the attack script"""
+
         try:
             script_name = self.attack_scripts.get(self.vuln_id)
             if not script_name:
@@ -229,7 +222,7 @@ class VulnerabilityExecutor(QThread):
             self.log_signal.emit(f"Attack error: {str(e)}")
 
     def stop(self):
-        """Stop the attack process"""
+
         self.running = False
         if self.process and self.process.poll() is None:
             self.log_signal.emit("Stopping attack process...")
@@ -242,14 +235,13 @@ class VulnerabilityExecutor(QThread):
                 self.process.kill()
                 self.log_signal.emit("Attack process killed")
 
-
 class VerticalTabBar(QTabBar):
-    """Custom QTabBar that draws text horizontally even when tabs are vertical"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         
     def paintEvent(self, event):
-        """Override paint event to draw horizontal text"""
+
         painter = QStylePainter(self)
         option = QStyleOptionTab()
 
@@ -269,21 +261,19 @@ class VerticalTabBar(QTabBar):
             painter.restore()
             
     def tabSizeHint(self, index):
-        """Provide size hint for horizontal text"""
+
         size = super().tabSizeHint(index)
         # For West-side tabs, swap width and height and make wider
         return QSize(200, size.width())
 
-
 class HorizontalTabWidget(QTabWidget):
-    """TabWidget with horizontal text on vertical tabs"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTabBar(VerticalTabBar(self))
 
-
 class VulnerabilityCard(QGroupBox):
-    """Widget for displaying vulnerability information"""
+
     log_signal = pyqtSignal(str)
 
     def __init__(self, vuln_data, parent=None):
@@ -399,12 +389,7 @@ class VulnerabilityCard(QGroupBox):
             QPushButton:pressed {
                 background-color: #991b1b;
             }
-        """)
-        self.execute_btn.clicked.connect(self.toggle_attack)
-        layout.addWidget(self.execute_btn)
         
-        self.setLayout(layout)
-        self.setStyleSheet("""
             QGroupBox {
                 background-color: white;
                 border: 2px solid #e5e7eb;
@@ -415,14 +400,14 @@ class VulnerabilityCard(QGroupBox):
         """)
     
     def toggle_attack(self):
-        """Toggle attack execution"""
+
         if not self.active:
             self.start_attack()
         else:
             self.stop_attack()
     
     def start_attack(self):
-        """Start the attack"""
+
         self.executor = VulnerabilityExecutor(self.vuln_data['id'])
         self.executor.log_signal.connect(self.on_log)
         self.executor.start()
@@ -445,7 +430,7 @@ class VulnerabilityCard(QGroupBox):
         """)
     
     def stop_attack(self):
-        """Stop the attack"""
+
         if self.executor:
             self.executor.stop()
             self.executor.wait()
@@ -465,25 +450,7 @@ class VulnerabilityCard(QGroupBox):
             QPushButton:hover {
                 background-color: #b91c1c;
             }
-        """)
-    
-    def on_log(self, message):
-        """Handle log messages from executor"""
-        # Emit signal to be connected by main window
-        self.log_signal.emit(message)
-
-class ThresholdConfig(QGroupBox):
-    """Widget for configuring detection thresholds for a specific attack type"""
-    
-    def __init__(self, attack_name, thresholds, parent=None):
-        super().__init__(attack_name, parent)
-        self.attack_name = attack_name
-        self.thresholds = thresholds
-        self.threshold_widgets = {}
         
-        self.setCheckable(True)
-        self.setChecked(True)
-        self.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
                 border: 2px solid #e5e7eb;
@@ -557,10 +524,8 @@ class ThresholdConfig(QGroupBox):
             if param_name in self.threshold_widgets:
                 self.threshold_widgets[param_name].setValue(value)
 
-
 class BagAnalyzer:
-    """Analyzes bag files for attack patterns"""
-    
+
     def __init__(self, bag_path, thresholds):
         self.bag_path = bag_path
         self.thresholds = thresholds
@@ -659,16 +624,44 @@ class BagAnalyzer:
         random.seed(hash(self.bag_path + attack_type))
         return base + random.uniform(-0.2, 0.2)
 
-
 class AVSVAMainWindow(QMainWindow):
-    """Main application window"""
-    
+
     def __init__(self):
         super().__init__()
-        
+
         self.simulation_controller = None
         self.bag_recorder = None
-        
+
+        # Detection threshold parameters (configurable)
+        self.detection_params = {
+            'cmd_vel': {
+                'spin_linear_threshold': 0.1,      # Linear velocity threshold for spin detection
+                'spin_angular_threshold': 1.5,     # Angular velocity threshold for spin detection
+                'linear_change_threshold': 0.5,    # Abrupt linear velocity change threshold
+                'angular_change_threshold': 1.0,   # Abrupt angular velocity change threshold
+                'direction_change_ratio': 0.3,     # Ratio of direction changes to total messages
+            },
+            'odom': {
+                'max_position_jump': 5.0,          # Maximum position jump (meters)
+                'min_velocity': -1.0,              # Minimum realistic velocity
+                'max_velocity': 10.0,              # Maximum realistic velocity
+                'min_messages': 10,                # Minimum messages needed for analysis
+            },
+            'imu': {
+                'angular_velocity_threshold': 5.0, # Angular velocity threshold (rad/s)
+                'acceleration_threshold': 20.0,    # Linear acceleration threshold (m/s²)
+                'anomaly_ratio': 0.1,              # Ratio of anomalous messages to total
+            },
+            'param': {
+                'min_messages': 20,                # Minimum messages needed for analysis
+                'speed_change_threshold': 2.0,     # Sudden speed change threshold
+                'max_speed_changes': 3,            # Maximum acceptable speed changes
+            },
+            'node_shutdown': {
+                'message_gap_threshold': 2.0,      # Gap threshold for shutdown detection (seconds)
+            },
+        }
+
         self.vulnerabilities = [
             {
                 'id': 'cmd_vel_injection',
@@ -784,7 +777,7 @@ while not rospy.is_shutdown():
         self.init_ui()
 
     def get_default_thresholds(self):
-        """Get default detection thresholds"""
+
         return {
             'cmd_vel_injection': {
                 'enabled': True,
@@ -826,7 +819,7 @@ while not rospy.is_shutdown():
         }
     
     def create_threshold_configs(self):
-        """Create threshold configuration widgets"""
+
         self.threshold_config_widgets = {}
         attack_names = {
             'cmd_vel_injection': 'CMD_VEL Injection Detection',
@@ -841,7 +834,7 @@ while not rospy.is_shutdown():
             self.threshold_config_widgets[attack_id] = config_widget
     
     def reset_thresholds(self):
-        """Reset all thresholds to defaults"""
+
         self.detection_thresholds = self.get_default_thresholds()
         for attack_id, config_widget in self.threshold_config_widgets.items():
             default_values = {k: v['value'] for k, v in self.detection_thresholds[attack_id]['thresholds'].items()}
@@ -849,7 +842,7 @@ while not rospy.is_shutdown():
         self.add_log("Thresholds reset to defaults")
     
     def get_current_thresholds(self):
-        """Get current threshold configuration"""
+
         current_config = {}
         for attack_id, config_widget in self.threshold_config_widgets.items():
             current_config[attack_id] = {
@@ -859,7 +852,7 @@ while not rospy.is_shutdown():
         return current_config
     
     def run_deep_analysis(self):
-        """Run analysis on selected bag"""
+
         selected_items = self.bag_list.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "No Selection", "Please select a bag file")
@@ -883,7 +876,7 @@ while not rospy.is_shutdown():
         self.display_analysis_results(results)
     
     def display_analysis_results(self, results):
-        """Display analysis results"""
+
         if 'error' in results:
             self.attack_detection_output.append(f"ERROR: {results['error']}")
             return
@@ -925,7 +918,7 @@ while not rospy.is_shutdown():
         self.add_log("Analysis complete")
     
     def export_analysis(self):
-        """Export analysis to file"""
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename, _ = QFileDialog.getSaveFileName(self, "Export Analysis", f"analysis_{timestamp}.txt", "Text Files (*.txt)")
         
@@ -942,7 +935,7 @@ while not rospy.is_shutdown():
                 QMessageBox.critical(self, "Error", f"Export failed:\n{str(e)}")
     
     def init_ui(self):
-        """Initialize the user interface"""
+
         self.setWindowTitle("AVSVA - Autonomous Vehicle Simulation and Vulnerability Analyzer")
 
         # Make window resizable and set initial size
@@ -1008,7 +1001,6 @@ while not rospy.is_shutdown():
         subtitle.setStyleSheet("color: #6b7280; margin-bottom: 20px;")
         main_layout.addWidget(subtitle)
         
-        # Create tab widget with tabs on left side (horizontal text)
         self.tabs = HorizontalTabWidget()
         self.tabs.setTabPosition(QTabWidget.West)  # Position tabs on the left
         main_layout.addWidget(self.tabs)
@@ -1024,7 +1016,7 @@ while not rospy.is_shutdown():
         self.statusBar().setStyleSheet("background-color: #e5e7eb; color: #374151; font-weight: bold;")
     
     def create_simulation_tab(self):
-        """Create the simulation control tab"""
+
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -1216,12 +1208,7 @@ while not rospy.is_shutdown():
                 left: 10px;
                 padding: 0 5px 0 5px;
             }
-        """)
-        log_layout = QVBoxLayout()
         
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet("""
             QTextEdit {
                 background-color: #1f2937;
                 color: #10b981;
@@ -1256,7 +1243,7 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Robot Simulation")
     
     def create_vulnerability_tab(self):
-        """Create the vulnerability injection tab with preset and custom options"""
+
         tab = QWidget()
         main_layout = QVBoxLayout(tab)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -1315,7 +1302,7 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Vulnerability Injection")
 
     def create_custom_injection_tab(self):
-        """Create custom injection interface for security researchers"""
+
         tab = QWidget()
         main_layout = QVBoxLayout(tab)
         main_layout.setContentsMargins(10, 10, 10, 10)
@@ -1349,12 +1336,7 @@ while not rospy.is_shutdown():
                 font-weight: bold;
             }
             QPushButton:hover { background-color: #4f46e5; }
-        """)
-        discover_btn.clicked.connect(self.discover_topics)
-        topic_layout.addWidget(discover_btn)
-
-        self.topic_combo = QComboBox()
-        self.topic_combo.setStyleSheet("""
+        
             QComboBox {
                 padding: 8px;
                 border: 2px solid #d1d5db;
@@ -1548,7 +1530,7 @@ while not rospy.is_shutdown():
         return tab
 
     def discover_topics(self):
-        """Discover active ROS topics"""
+
         try:
             import rostopic
             topics = rospy.get_published_topics()
@@ -1573,7 +1555,7 @@ while not rospy.is_shutdown():
             QMessageBox.warning(self, "Error", f"Failed to discover topics:\n{str(e)}\n\nMake sure ROS master is running.")
 
     def on_topic_selected(self, topic_name):
-        """Handle topic selection"""
+
         if not topic_name or topic_name not in self.available_topics:
             return
 
@@ -1585,7 +1567,7 @@ while not rospy.is_shutdown():
         self.custom_execute_btn.setEnabled(True)
 
     def create_payload_fields(self, msg_type):
-        """Create input fields based on message type"""
+
         # Clear existing fields
         for i in reversed(range(self.payload_layout.count())):
             self.payload_layout.itemAt(i).widget().setParent(None)
@@ -1622,7 +1604,7 @@ while not rospy.is_shutdown():
             self.payload_layout.addWidget(label)
 
     def add_payload_field(self, field_name, default_value, description):
-        """Add a payload configuration field"""
+
         field_layout = QHBoxLayout()
 
         label = QLabel(f"{field_name}:")
@@ -1646,7 +1628,7 @@ while not rospy.is_shutdown():
         self.payload_fields[field_name] = spinbox
 
     def load_template(self, template_name):
-        """Load attack template values"""
+
         if template_name == "Stop Command (Zero Velocity)":
             self.set_payload_values({"linear.x": 0.0, "linear.y": 0.0, "linear.z": 0.0,
                                     "angular.x": 0.0, "angular.y": 0.0, "angular.z": 0.0})
@@ -1667,13 +1649,13 @@ while not rospy.is_shutdown():
             self.set_payload_values(values)
 
     def set_payload_values(self, values):
-        """Set payload field values from dictionary"""
+
         for field_name, value in values.items():
             if field_name in self.payload_fields:
                 self.payload_fields[field_name].setValue(value)
 
     def generate_attack_script(self):
-        """Generate attack script content"""
+
         topic = self.topic_combo.currentText()
         rate = self.rate_spin.value()
         duration = self.duration_spin.value()
@@ -1711,7 +1693,7 @@ while not rospy.is_shutdown():
         return "\n".join(script_lines)
 
     def execute_custom_attack(self):
-        """Execute the custom attack"""
+
         topic = self.topic_combo.currentText()
         if not topic:
             QMessageBox.warning(self, "No Topic", "Please select a topic first")
@@ -1745,7 +1727,7 @@ while not rospy.is_shutdown():
             QMessageBox.critical(self, "Error", f"Failed to execute attack:\n{str(e)}")
 
     def stop_custom_attack(self):
-        """Stop the custom attack"""
+
         if self.custom_attack_process and self.custom_attack_process.poll() is None:
             self.custom_attack_process.terminate()
             self.custom_attack_process.wait(timeout=2)
@@ -1755,7 +1737,7 @@ while not rospy.is_shutdown():
         self.custom_stop_btn.setEnabled(False)
 
     def save_custom_script(self):
-        """Save custom attack as Python script"""
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Attack Script",
@@ -1775,7 +1757,7 @@ while not rospy.is_shutdown():
                 QMessageBox.critical(self, "Error", f"Failed to save script:\n{str(e)}")
     
     def create_analysis_tab(self):
-        """Create analysis tab with bag loading and topic-based analysis"""
+
         tab = QWidget()
         main_layout = QVBoxLayout(tab)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -1841,7 +1823,6 @@ while not rospy.is_shutdown():
         load_section.setLayout(load_layout)
         main_layout.addWidget(load_section)
 
-        # Analysis content area (will hold topic tabs after bag is loaded)
         self.analysis_content = QWidget()
         self.analysis_content_layout = QVBoxLayout(self.analysis_content)
         self.analysis_content_layout.setContentsMargins(0, 0, 0, 0)
@@ -1857,7 +1838,7 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Analysis")
 
     def select_recorded_bag(self):
-        """Show dialog to select from recorded bags"""
+
         bags_dir = os.path.join(os.path.dirname(__file__), 'recorded_bags')
         if not os.path.exists(bags_dir):
             QMessageBox.warning(self, "No Bags", "No recorded bags directory found")
@@ -1875,7 +1856,7 @@ while not rospy.is_shutdown():
             self.load_and_parse_bag(bag_path)
 
     def select_external_bag(self):
-        """Show file dialog to select external bag file"""
+
         bag_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Bag File",
@@ -1886,7 +1867,7 @@ while not rospy.is_shutdown():
             self.load_and_parse_bag(bag_path)
 
     def load_and_parse_bag(self, bag_path):
-        """Load and parse bag file, then create topic tabs"""
+
         try:
             self.add_log(f"Loading bag file: {bag_path}")
             self.current_bag_path = bag_path
@@ -1938,7 +1919,7 @@ while not rospy.is_shutdown():
             QMessageBox.critical(self, "Error", f"Failed to load bag file:\n{str(e)}")
 
     def create_topic_tabs(self):
-        """Create tabs for each topic in the loaded bag"""
+
         # Remove old content
         if self.no_bag_label:
             self.no_bag_label.setParent(None)
@@ -1968,10 +1949,14 @@ while not rospy.is_shutdown():
         attack_widget = self.create_attack_detection_widget()
         self.topic_tabs.addTab(attack_widget, "Attack Detection")
 
+        # Add settings tab
+        settings_widget = self.create_detection_settings_widget()
+        self.topic_tabs.addTab(settings_widget, "Detection Settings")
+
         self.analysis_content_layout.addWidget(self.topic_tabs)
 
     def create_overview_widget(self):
-        """Create overview widget showing bag file summary"""
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -2025,7 +2010,7 @@ while not rospy.is_shutdown():
         return widget
 
     def create_topic_analysis_widget(self, topic_name):
-        """Create advanced analysis widget with table view and conditional formatting"""
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(15, 15, 15, 15)
@@ -2126,19 +2111,7 @@ while not rospy.is_shutdown():
                 font-weight: bold;
             }
             QPushButton:hover { background-color: #1d4ed8; }
-        """)
-        export_filtered_btn.clicked.connect(lambda: self.export_filtered_data(topic_name))
-        bottom_toolbar.addWidget(export_filtered_btn)
-
-        layout.addLayout(bottom_toolbar)
-
-        return widget
-
-    def create_topic_table(self, topic_name, topic_data):
-        """Create formatted table for topic data with conditional formatting"""
-        table = QTableWidget()
-        table.setAlternatingRowColors(True)
-        table.setStyleSheet("""
+        
             QTableWidget {
                 background-color: white;
                 border: 1px solid #e5e7eb;
@@ -2163,7 +2136,6 @@ while not rospy.is_shutdown():
         msg_type = topic_data['type']
         messages = topic_data['messages']
 
-        # Determine columns and data extraction based on message type
         if 'Twist' in msg_type:
             headers = ['#', 'Timestamp', 'Linear X', 'Linear Y', 'Linear Z', 'Angular X', 'Angular Y', 'Angular Z', 'Status']
             table.setColumnCount(len(headers))
@@ -2181,7 +2153,6 @@ while not rospy.is_shutdown():
                 table.setItem(i, 6, QTableWidgetItem(f"{msg.angular.y:.4f}"))
                 table.setItem(i, 7, QTableWidgetItem(f"{msg.angular.z:.4f}"))
 
-                # Conditional formatting for Twist messages (detect attacks)
                 status_item = QTableWidgetItem()
                 # Detect spin attack
                 if abs(msg.linear.x) < 0.1 and abs(msg.angular.z) > 1.5:
@@ -2306,7 +2277,7 @@ while not rospy.is_shutdown():
         return table
 
     def filter_table(self, topic_name, search_text):
-        """Filter table rows based on search text"""
+
         # Find the table widget
         for widget in self.topic_tabs.findChildren(QTableWidget):
             if widget.objectName() == f"table_{topic_name}":
@@ -2325,12 +2296,11 @@ while not rospy.is_shutdown():
                 break
 
     def toggle_anomaly_highlighting(self, topic_name, state):
-        """Toggle anomaly highlighting in table"""
+
         # Find the table widget
         for widget in self.topic_tabs.findChildren(QTableWidget):
             if widget.objectName() == f"table_{topic_name}":
                 if state == Qt.Checked:
-                    # Re-apply conditional formatting (already done in create_topic_table)
                     pass
                 else:
                     # Remove highlighting
@@ -2342,7 +2312,7 @@ while not rospy.is_shutdown():
                 break
 
     def show_topic_statistics(self, topic_name):
-        """Show statistical analysis for the topic"""
+
         topic_data = self.bag_data['topics'][topic_name]
         msg_type = topic_data['type']
         messages = topic_data['messages']
@@ -2405,7 +2375,7 @@ while not rospy.is_shutdown():
         QMessageBox.information(self, "Topic Statistics", "\n".join(stats_text))
 
     def export_filtered_data(self, topic_name):
-        """Export currently filtered/visible data to CSV"""
+
         # Find the table widget
         table = None
         for widget in self.topic_tabs.findChildren(QTableWidget):
@@ -2450,7 +2420,7 @@ while not rospy.is_shutdown():
                 QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
 
     def create_attack_detection_widget(self):
-        """Create attack detection widget with security analysis tools"""
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -2473,14 +2443,7 @@ while not rospy.is_shutdown():
                 font-size: 12pt;
             }
             QPushButton:hover { background-color: #b91c1c; }
-        """)
-        analyze_btn.clicked.connect(self.run_security_analysis)
-        layout.addWidget(analyze_btn)
-
-        # Results area
-        self.attack_results = QTextEdit()
-        self.attack_results.setReadOnly(True)
-        self.attack_results.setStyleSheet("""
+        
             QTextEdit {
                 background-color: #f9fafb;
                 border: 2px solid #e5e7eb;
@@ -2495,8 +2458,241 @@ while not rospy.is_shutdown():
 
         return widget
 
+    def create_detection_settings_widget(self):
+
+        widget = QWidget()
+        main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # Header
+        header = QLabel("Detection Threshold Configuration")
+        header.setFont(QFont('Arial', 14, QFont.Bold))
+        header.setStyleSheet("color: #1f2937; margin-bottom: 10px;")
+        main_layout.addWidget(header)
+
+        info_label = QLabel("Configure detection thresholds for security analysis algorithms. Adjust these values based on your robot's normal operating parameters.")
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #6b7280; margin-bottom: 15px; padding: 10px; background-color: #f3f4f6; border-radius: 4px;")
+        main_layout.addWidget(info_label)
+
+        # Scroll area for all settings
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none;")
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(15)
+
+        # Store spinboxes for reset functionality
+        self.param_spinboxes = {}
+
+        # CMD_VEL Settings
+        cmd_vel_group = self.create_param_group(
+            "CMD_VEL Injection Detection",
+            "Parameters for detecting malicious velocity command injection attacks",
+            [
+                ('spin_linear_threshold', 'Spin Linear Threshold (m/s)', 'Maximum linear velocity to consider as spin attack', 0.0, 2.0, 0.01),
+                ('spin_angular_threshold', 'Spin Angular Threshold (rad/s)', 'Minimum angular velocity to trigger spin attack detection', 0.0, 10.0, 0.1),
+                ('linear_change_threshold', 'Linear Change Threshold (m/s)', 'Threshold for detecting abrupt linear velocity changes', 0.1, 5.0, 0.1),
+                ('angular_change_threshold', 'Angular Change Threshold (rad/s)', 'Threshold for detecting abrupt angular velocity changes', 0.1, 5.0, 0.1),
+                ('direction_change_ratio', 'Direction Change Ratio', 'Ratio of direction changes to total messages (0-1)', 0.0, 1.0, 0.05),
+            ],
+            'cmd_vel'
+        )
+        scroll_layout.addWidget(cmd_vel_group)
+
+        # Odometry Settings
+        odom_group = self.create_param_group(
+            "Odometry Spoofing Detection",
+            "Parameters for detecting odometry data spoofing attacks",
+            [
+                ('max_position_jump', 'Max Position Jump (m)', 'Maximum position jump between messages', 0.1, 50.0, 0.5),
+                ('min_velocity', 'Min Velocity (m/s)', 'Minimum realistic velocity (negative for reverse)', -10.0, 0.0, 0.1),
+                ('max_velocity', 'Max Velocity (m/s)', 'Maximum realistic velocity', 0.0, 50.0, 0.5),
+                ('min_messages', 'Minimum Messages', 'Minimum messages required for analysis', 1, 100, 1),
+            ],
+            'odom'
+        )
+        scroll_layout.addWidget(odom_group)
+
+        # IMU Settings
+        imu_group = self.create_param_group(
+            "IMU Spoofing Detection",
+            "Parameters for detecting IMU sensor data spoofing",
+            [
+                ('angular_velocity_threshold', 'Angular Velocity Threshold (rad/s)', 'Threshold for excessive angular velocity', 0.0, 20.0, 0.5),
+                ('acceleration_threshold', 'Acceleration Threshold (m/s²)', 'Threshold for excessive linear acceleration', 0.0, 100.0, 1.0),
+                ('anomaly_ratio', 'Anomaly Ratio', 'Ratio of anomalous messages to trigger detection (0-1)', 0.0, 1.0, 0.05),
+            ],
+            'imu'
+        )
+        scroll_layout.addWidget(imu_group)
+
+        # Parameter Manipulation Settings
+        param_group = self.create_param_group(
+            "Parameter Manipulation Detection",
+            "Parameters for detecting parameter tampering attacks",
+            [
+                ('min_messages', 'Minimum Messages', 'Minimum messages required for analysis', 1, 100, 1),
+                ('speed_change_threshold', 'Speed Change Threshold (m/s)', 'Threshold for sudden speed changes', 0.1, 10.0, 0.1),
+                ('max_speed_changes', 'Max Speed Changes', 'Maximum acceptable sudden speed changes', 1, 20, 1),
+            ],
+            'param'
+        )
+        scroll_layout.addWidget(param_group)
+
+        # Node Shutdown Settings
+        shutdown_group = self.create_param_group(
+            "Node Shutdown Detection",
+            "Parameters for detecting node shutdown attacks",
+            [
+                ('message_gap_threshold', 'Message Gap Threshold (s)', 'Time gap threshold for detecting shutdown', 0.1, 10.0, 0.1),
+            ],
+            'node_shutdown'
+        )
+        scroll_layout.addWidget(shutdown_group)
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        main_layout.addWidget(scroll)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6b7280;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #4b5563; }
+        """)
+        reset_btn.clicked.connect(self.reset_detection_params)
+        button_layout.addWidget(reset_btn)
+
+        apply_btn = QPushButton("Apply Changes")
+        apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px;
+                background-color: white;
+            }
+        """)
+        layout = QVBoxLayout()
+
+        # Description
+        desc_label = QLabel(description)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #6b7280; font-weight: normal; font-style: italic; margin-bottom: 10px;")
+        layout.addWidget(desc_label)
+
+        # Parameters grid
+        grid = QGridLayout()
+        grid.setSpacing(10)
+
+        for row, (param_key, label, tooltip, min_val, max_val, step) in enumerate(params):
+            # Label
+            param_label = QLabel(label + ":")
+            param_label.setStyleSheet("font-weight: normal;")
+            param_label.setToolTip(tooltip)
+            grid.addWidget(param_label, row, 0)
+
+            # Spinbox
+            spinbox = QDoubleSpinBox() if isinstance(step, float) else QSpinBox()
+            spinbox.setRange(min_val, max_val)
+            if isinstance(step, float):
+                spinbox.setSingleStep(step)
+                spinbox.setDecimals(2)
+                spinbox.setValue(self.detection_params[category][param_key])
+            else:
+                spinbox.setSingleStep(step)
+                spinbox.setValue(int(self.detection_params[category][param_key]))
+
+            spinbox.setStyleSheet("padding: 5px; min-width: 100px;")
+            spinbox.setToolTip(tooltip)
+            grid.addWidget(spinbox, row, 1)
+
+            # Store reference
+            self.param_spinboxes[f"{category}.{param_key}"] = spinbox
+
+            # Info label (current value)
+            info = QLabel(f"Current: {self.detection_params[category][param_key]}")
+            info.setStyleSheet("color: #6b7280; font-weight: normal; font-size: 9pt;")
+            grid.addWidget(info, row, 2)
+
+        layout.addLayout(grid)
+        group.setLayout(layout)
+        return group
+
+    def apply_detection_params(self):
+
+        for key, spinbox in self.param_spinboxes.items():
+            category, param_key = key.split('.')
+            self.detection_params[category][param_key] = spinbox.value()
+
+        QMessageBox.information(self, "Settings Applied", "Detection parameters have been updated successfully.\n\nRe-run security analysis to use the new thresholds.")
+        self.add_log("Detection parameters updated")
+
+    def reset_detection_params(self):
+
+        defaults = {
+            'cmd_vel': {
+                'spin_linear_threshold': 0.1,
+                'spin_angular_threshold': 1.5,
+                'linear_change_threshold': 0.5,
+                'angular_change_threshold': 1.0,
+                'direction_change_ratio': 0.3,
+            },
+            'odom': {
+                'max_position_jump': 5.0,
+                'min_velocity': -1.0,
+                'max_velocity': 10.0,
+                'min_messages': 10,
+            },
+            'imu': {
+                'angular_velocity_threshold': 5.0,
+                'acceleration_threshold': 20.0,
+                'anomaly_ratio': 0.1,
+            },
+            'param': {
+                'min_messages': 20,
+                'speed_change_threshold': 2.0,
+                'max_speed_changes': 3,
+            },
+            'node_shutdown': {
+                'message_gap_threshold': 2.0,
+            },
+        }
+
+        self.detection_params = defaults
+
+        # Update spinboxes
+        for key, spinbox in self.param_spinboxes.items():
+            category, param_key = key.split('.')
+            spinbox.setValue(defaults[category][param_key])
+
+        QMessageBox.information(self, "Reset Complete", "All detection parameters have been reset to default values.")
+        self.add_log("Detection parameters reset to defaults")
+
     def run_security_analysis(self):
-        """Run comprehensive security analysis on bag data"""
+
         if not self.bag_data:
             QMessageBox.warning(self, "No Data", "Please load a bag file first")
             return
@@ -2535,7 +2731,7 @@ while not rospy.is_shutdown():
         self.add_log("Security analysis complete")
 
     def detect_cmd_vel_attack(self):
-        """Detect CMD_VEL topic injection attacks"""
+
         results = ["\n[1] CMD_VEL INJECTION ATTACK DETECTION"]
         results.append("-" * 80)
 
@@ -2549,6 +2745,14 @@ while not rospy.is_shutdown():
             results.append("✓ No cmd_vel messages - no injection detected")
             return results
 
+        # Get configurable thresholds
+        params = self.detection_params['cmd_vel']
+        spin_linear_thresh = params['spin_linear_threshold']
+        spin_angular_thresh = params['spin_angular_threshold']
+        linear_change_thresh = params['linear_change_threshold']
+        angular_change_thresh = params['angular_change_threshold']
+        direction_change_ratio = params['direction_change_ratio']
+
         # Check for rapid direction changes (attack signature)
         direction_changes = 0
         prev_linear = None
@@ -2561,14 +2765,14 @@ while not rospy.is_shutdown():
             angular = msg.angular.z
 
             # Detect spin attack (linear=0, high angular velocity)
-            if abs(linear) < 0.1 and abs(angular) > 1.5:
+            if abs(linear) < spin_linear_thresh and abs(angular) > spin_angular_thresh:
                 spin_detected = True
 
             if prev_linear is not None:
                 # Detect abrupt changes
-                if abs(linear - prev_linear) > 0.5:
+                if abs(linear - prev_linear) > linear_change_thresh:
                     direction_changes += 1
-                if abs(angular - prev_angular) > 1.0:
+                if abs(angular - prev_angular) > angular_change_thresh:
                     direction_changes += 1
 
             prev_linear = linear
@@ -2577,17 +2781,17 @@ while not rospy.is_shutdown():
         # Determine attack presence
         if spin_detected:
             results.append("⚠️  ATTACK DETECTED: Spin attack pattern identified")
-            results.append(f"    - Detected: linear.x ≈ 0, angular.z > 1.5 (forced spin)")
-        elif direction_changes > len(messages) * 0.3:
+            results.append(f"    - Detected: linear.x < {spin_linear_thresh}, angular.z > {spin_angular_thresh} (forced spin)")
+        elif direction_changes > len(messages) * direction_change_ratio:
             results.append("⚠️  POSSIBLE ATTACK: High rate of direction changes")
-            results.append(f"    - Direction changes: {direction_changes}/{len(messages)} messages")
+            results.append(f"    - Direction changes: {direction_changes}/{len(messages)} messages ({direction_changes/len(messages)*100:.1f}%)")
         else:
             results.append("✓ No cmd_vel injection attack detected")
 
         return results
 
     def detect_odom_spoofing(self):
-        """Detect odometry spoofing attacks"""
+
         results = ["\n[2] ODOMETRY SPOOFING DETECTION"]
         results.append("-" * 80)
 
@@ -2597,8 +2801,16 @@ while not rospy.is_shutdown():
             return results
 
         messages = self.bag_data['topics'][odom_topic]['messages']
-        if len(messages) < 10:
-            results.append("✓ Insufficient odometry data")
+
+        # Get configurable thresholds
+        params = self.detection_params['odom']
+        min_messages = params['min_messages']
+        max_position_jump = params['max_position_jump']
+        min_velocity = params['min_velocity']
+        max_velocity = params['max_velocity']
+
+        if len(messages) < min_messages:
+            results.append(f"✓ Insufficient odometry data (need {min_messages} messages)")
             return results
 
         # Check for unrealistic jumps in position
@@ -2614,25 +2826,24 @@ while not rospy.is_shutdown():
             jump = np.sqrt(dx**2 + dy**2)
             max_jump = max(max_jump, jump)
 
-        # Check for negative or excessive velocities (attack signature)
         suspicious_velocities = 0
         for msg_data in messages:
             msg = msg_data['message']
             vel = msg.twist.twist.linear.x
-            if vel < -1.0 or vel > 10.0:  # Unrealistic velocities
+            if vel < min_velocity or vel > max_velocity:  # Unrealistic velocities
                 suspicious_velocities += 1
 
-        if max_jump > 5.0:
-            results.append(f"⚠️  ATTACK DETECTED: Unrealistic position jump ({max_jump:.2f}m)")
+        if max_jump > max_position_jump:
+            results.append(f"⚠️  ATTACK DETECTED: Unrealistic position jump ({max_jump:.2f}m > {max_position_jump}m)")
         elif suspicious_velocities > 0:
-            results.append(f"⚠️  SUSPICIOUS: {suspicious_velocities} messages with unrealistic velocities")
+            results.append(f"⚠️  SUSPICIOUS: {suspicious_velocities} messages with unrealistic velocities (outside {min_velocity} to {max_velocity} m/s)")
         else:
             results.append("✓ No odometry spoofing detected")
 
         return results
 
     def detect_imu_spoofing(self):
-        """Detect IMU data spoofing"""
+
         results = ["\n[3] IMU SPOOFING DETECTION"]
         results.append("-" * 80)
 
@@ -2646,7 +2857,12 @@ while not rospy.is_shutdown():
             results.append("✓ No IMU messages")
             return results
 
-        # Check for unrealistic angular velocities and accelerations
+        # Get configurable thresholds
+        params = self.detection_params['imu']
+        angular_vel_thresh = params['angular_velocity_threshold']
+        accel_thresh = params['acceleration_threshold']
+        anomaly_ratio = params['anomaly_ratio']
+
         high_angular_vel = 0
         high_accel = 0
 
@@ -2654,48 +2870,56 @@ while not rospy.is_shutdown():
             msg = msg_data['message']
 
             # Check angular velocity
-            if abs(msg.angular_velocity.z) > 5.0:
+            if abs(msg.angular_velocity.z) > angular_vel_thresh:
                 high_angular_vel += 1
 
             # Check linear acceleration
-            if abs(msg.linear_acceleration.x) > 20.0:
+            if abs(msg.linear_acceleration.x) > accel_thresh:
                 high_accel += 1
 
-        if high_angular_vel > len(messages) * 0.1:
-            results.append(f"⚠️  ATTACK DETECTED: Excessive angular velocities ({high_angular_vel} messages)")
-        elif high_accel > len(messages) * 0.1:
-            results.append(f"⚠️  ATTACK DETECTED: Excessive accelerations ({high_accel} messages)")
+        if high_angular_vel > len(messages) * anomaly_ratio:
+            results.append(f"⚠️  ATTACK DETECTED: Excessive angular velocities ({high_angular_vel} messages > {angular_vel_thresh} rad/s)")
+            results.append(f"    - {high_angular_vel/len(messages)*100:.1f}% of messages exceed threshold")
+        elif high_accel > len(messages) * anomaly_ratio:
+            results.append(f"⚠️  ATTACK DETECTED: Excessive accelerations ({high_accel} messages > {accel_thresh} m/s²)")
+            results.append(f"    - {high_accel/len(messages)*100:.1f}% of messages exceed threshold")
         else:
             results.append("✓ No IMU spoofing detected")
 
         return results
 
     def detect_param_manipulation(self):
-        """Detect parameter manipulation by analyzing message patterns"""
+
         results = ["\n[4] PARAMETER MANIPULATION DETECTION"]
         results.append("-" * 80)
 
-        # Look for sudden changes in cmd_vel that might indicate parameter changes
         cmd_vel_topic = '/husky_velocity_controller/cmd_vel'
         if cmd_vel_topic not in self.bag_data['topics']:
             results.append("✓ No cmd_vel data to analyze")
             return results
 
         messages = self.bag_data['topics'][cmd_vel_topic]['messages']
-        if len(messages) < 20:
-            results.append("✓ Insufficient data")
+
+        # Get configurable thresholds
+        params = self.detection_params['param']
+        min_messages = params['min_messages']
+        speed_change_thresh = params['speed_change_threshold']
+        max_speed_changes = params['max_speed_changes']
+
+        if len(messages) < min_messages:
+            results.append(f"✓ Insufficient data (need {min_messages} messages)")
             return results
 
-        # Detect sudden speed changes that might indicate parameter tampering
         speeds = [msg_data['message'].linear.x for msg_data in messages]
         speed_changes = []
         for i in range(1, len(speeds)):
             change = abs(speeds[i] - speeds[i-1])
-            if change > 2.0:  # Sudden change
+            if change > speed_change_thresh:  # Sudden change
                 speed_changes.append((i, change))
 
-        if len(speed_changes) > 3:
-            results.append(f"⚠️  SUSPICIOUS: {len(speed_changes)} sudden speed changes detected")
+        if len(speed_changes) > max_speed_changes:
+            results.append(f"⚠️  SUSPICIOUS: {len(speed_changes)} sudden speed changes detected (threshold: {max_speed_changes})")
+            results.append(f"    - Changes exceed {speed_change_thresh} m/s threshold")
             results.append("    - May indicate parameter manipulation attack")
         else:
             results.append("✓ No clear parameter manipulation detected")
@@ -2703,11 +2927,10 @@ while not rospy.is_shutdown():
         return results
 
     def detect_node_shutdown(self):
-        """Detect node shutdown attacks by analyzing message gaps"""
+
         results = ["\n[5] NODE SHUTDOWN DETECTION"]
         results.append("-" * 80)
 
-        # Check for large gaps in message timestamps across all topics
         max_gap = 0
         gap_topic = None
 
@@ -2722,21 +2945,23 @@ while not rospy.is_shutdown():
                     max_gap = gap
                     gap_topic = topic_name
 
-        # If there's a gap > 2 seconds, might indicate shutdown
-        if max_gap > 2.0:
-            results.append(f"⚠️  SUSPICIOUS: {max_gap:.2f}s gap detected in {gap_topic}")
+        # Get configurable threshold
+        params = self.detection_params['node_shutdown']
+        gap_threshold = params['message_gap_threshold']
+
+        if max_gap > gap_threshold:
+            results.append(f"⚠️  SUSPICIOUS: {max_gap:.2f}s gap detected in {gap_topic} (threshold: {gap_threshold}s)")
             results.append("    - May indicate node shutdown attack")
         else:
-            results.append("✓ No node shutdown detected")
+            results.append(f"✓ No significant message gaps detected (max gap: {max_gap:.2f}s)")
 
         return results
 
     def detect_anomalies(self):
-        """General anomaly detection"""
+
         results = ["\n[6] GENERAL ANOMALY DETECTION"]
         results.append("-" * 80)
 
-        # Check for topics with very low frequency (might be spoofed)
         low_freq_topics = []
         for topic_name, topic_data in self.bag_data['topics'].items():
             if topic_data['frequency'] < 1.0 and topic_data['message_count'] > 5:
@@ -2750,7 +2975,7 @@ while not rospy.is_shutdown():
         return results
 
     def export_overview_csv(self):
-        """Export bag overview to CSV"""
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Overview CSV",
@@ -2773,7 +2998,7 @@ while not rospy.is_shutdown():
                 QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
 
     def export_topic_csv(self, topic_name):
-        """Export topic data to CSV"""
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             f"Save {topic_name} CSV",
@@ -2801,7 +3026,7 @@ while not rospy.is_shutdown():
                 QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
 
     def create_report_tab(self):
-        """Create the report generation tab"""
+
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -2970,7 +3195,7 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Generate Report")
 
     def generate_report(self):
-        """Generate the security report"""
+
         self.add_log("Generating security report...")
 
         report_content = []
@@ -3015,7 +3240,7 @@ while not rospy.is_shutdown():
         self.add_log("Report generated successfully")
 
     def save_report(self):
-        """Save the generated report to a file"""
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Report",
@@ -3034,7 +3259,7 @@ while not rospy.is_shutdown():
                 QMessageBox.critical(self, "Error", f"Failed to save report:\n{str(e)}")
 
     def add_log(self, message):
-        """Add a message to the log output"""
+
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_output.append(f"[{timestamp}] {message}")
         self.log_output.verticalScrollBar().setValue(
@@ -3042,7 +3267,7 @@ while not rospy.is_shutdown():
         )
     
     def start_simulation(self):
-        """Start the simulation"""
+
         self.simulation_controller = SimulationController()
         self.simulation_controller.log_signal.connect(self.add_log)
         self.simulation_controller.status_signal.connect(self.update_sim_status)
@@ -3052,7 +3277,7 @@ while not rospy.is_shutdown():
         self.stop_sim_btn.setEnabled(True)
     
     def stop_simulation(self):
-        """Stop the simulation"""
+
         if self.simulation_controller:
             self.simulation_controller.stop()
             self.simulation_controller.wait()
@@ -3063,7 +3288,7 @@ while not rospy.is_shutdown():
         self.stop_rec_btn.setEnabled(False)
     
     def update_sim_status(self, running):
-        """Update simulation status indicator"""
+
         if running:
             self.status_indicator.setText("● Running")
             self.status_indicator.setStyleSheet("color: #10b981;")
@@ -3074,7 +3299,7 @@ while not rospy.is_shutdown():
             self.start_rec_btn.setEnabled(False)
     
     def start_recording(self):
-        """Start bag file recording"""
+
         self.bag_recorder = BagRecorder()
         self.bag_recorder.log_signal.connect(self.add_log)
         self.bag_recorder.status_signal.connect(self.update_rec_status)
@@ -3084,7 +3309,7 @@ while not rospy.is_shutdown():
         self.stop_rec_btn.setEnabled(True)
     
     def stop_recording(self):
-        """Stop bag file recording"""
+
         if self.bag_recorder:
             self.bag_recorder.stop()
             self.bag_recorder.wait()
@@ -3096,7 +3321,7 @@ while not rospy.is_shutdown():
         self.refresh_bag_list()
     
     def update_rec_status(self, recording):
-        """Update recording status indicator"""
+
         if recording:
             self.rec_indicator.setText("● Recording")
             self.rec_indicator.setStyleSheet("color: #dc2626;")
@@ -3105,7 +3330,7 @@ while not rospy.is_shutdown():
             self.rec_indicator.setStyleSheet("color: #6b7280;")
     
     def refresh_bag_list(self):
-        """Refresh the list of bag files"""
+
         self.bag_list.clear()
         
         bags_dir = os.path.join(os.path.dirname(__file__), 'recorded_bags')
@@ -3121,7 +3346,7 @@ while not rospy.is_shutdown():
             self.add_log("No recorded bags directory found")
     
     def load_bag_file(self, item):
-        """Load and analyze a bag file"""
+
         bag_filename = item.text()
         bags_dir = os.path.join(os.path.dirname(__file__), 'recorded_bags')
         bag_path = os.path.join(bags_dir, bag_filename)
@@ -3129,7 +3354,7 @@ while not rospy.is_shutdown():
         self.analyze_bag_file(bag_path)
     
     def load_external_bag(self):
-        """Load an external bag file"""
+
         filename, _ = QFileDialog.getOpenFileName(
             self,
             "Select Bag File",
@@ -3141,7 +3366,7 @@ while not rospy.is_shutdown():
             self.analyze_bag_file(filename)
     
     def analyze_bag_file(self, bag_path):
-        """Analyze a bag file using rosbag info"""
+
         try:
             self.analysis_output.clear()
             self.analysis_output.append(f"Analyzing: {os.path.basename(bag_path)}\n")
@@ -3189,7 +3414,7 @@ while not rospy.is_shutdown():
             self.add_log(f"Error analyzing bag file: {str(e)}")
     
     def closeEvent(self, event):
-        """Handle application close"""
+
         # Stop simulation and recording if running
         if self.simulation_controller and self.simulation_controller.running:
             self.stop_simulation()
@@ -3198,7 +3423,6 @@ while not rospy.is_shutdown():
             self.stop_recording()
         
         event.accept()
-
 
 def main():
     app = QApplication(sys.argv)
@@ -3211,7 +3435,6 @@ def main():
     window.show()
     
     sys.exit(app.exec_())
-
 
 if __name__ == '__main__':
     main()

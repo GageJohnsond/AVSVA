@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""
-IMU Data Spoofing Attack
-Injects false inertial measurement data to mislead orientation estimation
-"""
 
 import rospy
 from sensor_msgs.msg import Imu
 import math
 
 def imu_spoofing_attack():
-    """Execute IMU spoofing attack"""
+
     try:
         rospy.init_node('imu_spoofer', anonymous=True)
         pub = rospy.Publisher('/imu/data', Imu, queue_size=10)

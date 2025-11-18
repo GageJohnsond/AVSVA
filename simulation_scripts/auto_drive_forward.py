@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# auto_drive_forward.py
-# Simple node that publishes constant forward velocity to the Husky
 
 import rospy
 from geometry_msgs.msg import Twist

