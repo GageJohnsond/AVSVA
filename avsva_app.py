@@ -944,7 +944,21 @@ while not rospy.is_shutdown():
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("AVSVA - Autonomous Vehicle Simulation and Vulnerability Analyzer")
-        self.setGeometry(100, 100, 1400, 900)
+
+        # Make window resizable and set initial size
+        # Get screen geometry to set reasonable default size
+        screen = QApplication.desktop().screenGeometry()
+        width = min(1400, int(screen.width() * 0.9))
+        height = min(900, int(screen.height() * 0.9))
+
+        # Set initial position and size
+        self.setGeometry(100, 100, width, height)
+
+        # Set minimum size to prevent too small windows
+        self.setMinimumSize(800, 600)
+
+        # Make all widgets scale properly
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # Set application style
         self.setStyleSheet("""
@@ -1242,23 +1256,30 @@ while not rospy.is_shutdown():
         self.tabs.addTab(tab, "Robot Simulation")
     
     def create_vulnerability_tab(self):
-        """Create the vulnerability injection tab"""
+        """Create the vulnerability injection tab with preset and custom options"""
         tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
+        main_layout = QVBoxLayout(tab)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+
         # Header
         header = QLabel("Inject Vulnerabilities into Live Simulation")
         header.setFont(QFont('Arial', 14, QFont.Bold))
         header.setStyleSheet("color: #1f2937; margin-bottom: 10px;")
-        layout.addWidget(header)
-        
+        main_layout.addWidget(header)
+
         warning = QLabel("⚠️ Warning: These attacks will disrupt the robot's normal operation. Ensure simulation is running before executing.")
         warning.setStyleSheet("color: #dc2626; background-color: #fee2e2; padding: 10px; border-radius: 6px; margin-bottom: 20px;")
         warning.setWordWrap(True)
-        layout.addWidget(warning)
-        
-        # Create scroll area for vulnerability cards
+        main_layout.addWidget(warning)
+
+        # Create sub-tabs for Preset vs Custom
+        attack_tabs = QTabWidget()
+        attack_tabs.setTabPosition(QTabWidget.North)
+
+        # Preset Attacks Tab
+        preset_tab = QWidget()
+        preset_layout = QVBoxLayout(preset_tab)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("""
@@ -1267,22 +1288,480 @@ while not rospy.is_shutdown():
                 background-color: #f9fafb;
             }
         """)
-        
+
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(16)
-        
+
         # Create vulnerability cards
         for vuln in self.vulnerabilities:
             card = VulnerabilityCard(vuln, self)
-            card.log_signal.connect(self.add_log)  # Connect card's log signal to main window's add_log
+            card.log_signal.connect(self.add_log)
             scroll_layout.addWidget(card)
-        
+
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
-        
+        preset_layout.addWidget(scroll)
+
+        # Custom Injection Tab
+        custom_tab = self.create_custom_injection_tab()
+
+        # Add Custom Injection first (leftmost, default)
+        attack_tabs.addTab(custom_tab, "Custom Injection")
+        attack_tabs.addTab(preset_tab, "Preset Attacks")
+
+        main_layout.addWidget(attack_tabs)
+
         self.tabs.addTab(tab, "Vulnerability Injection")
+
+    def create_custom_injection_tab(self):
+        """Create custom injection interface for security researchers"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        # Topic Selection
+        topic_group = QGroupBox("1. Select Target Topic")
+        topic_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px;
+                background-color: white;
+            }
+        """)
+        topic_layout = QVBoxLayout()
+
+        discover_btn = QPushButton("🔍 Discover Active Topics")
+        discover_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                padding: 8px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #4f46e5; }
+        """)
+        discover_btn.clicked.connect(self.discover_topics)
+        topic_layout.addWidget(discover_btn)
+
+        self.topic_combo = QComboBox()
+        self.topic_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #d1d5db;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
+        self.topic_combo.currentTextChanged.connect(self.on_topic_selected)
+        topic_layout.addWidget(self.topic_combo)
+
+        self.topic_info_label = QLabel("No topic selected")
+        self.topic_info_label.setStyleSheet("color: #6b7280; font-style: italic; padding: 5px;")
+        topic_layout.addWidget(self.topic_info_label)
+
+        topic_group.setLayout(topic_layout)
+        layout.addWidget(topic_group)
+
+        # Message Type & Template
+        template_group = QGroupBox("2. Attack Template")
+        template_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px;
+                background-color: white;
+            }
+        """)
+        template_layout = QVBoxLayout()
+
+        template_label = QLabel("Select attack template:")
+        template_layout.addWidget(template_label)
+
+        self.template_combo = QComboBox()
+        self.template_combo.addItems([
+            "Custom (Manual)",
+            "Stop Command (Zero Velocity)",
+            "Spin Attack (High Angular)",
+            "Reverse Motion (Negative Linear)",
+            "Max Speed (Dangerous Fast)",
+            "Position Spoof (Teleport)",
+            "Sensor Noise (Random Values)",
+            "Freeze Values (Constant)",
+        ])
+        self.template_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #d1d5db;
+                border-radius: 6px;
+                background-color: white;
+            }
+        """)
+        self.template_combo.currentTextChanged.connect(self.load_template)
+        template_layout.addWidget(self.template_combo)
+
+        template_group.setLayout(template_layout)
+        layout.addWidget(template_group)
+
+        # Payload Configuration
+        payload_group = QGroupBox("3. Configure Payload")
+        payload_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px;
+                background-color: white;
+            }
+        """)
+        payload_layout = QVBoxLayout()
+
+        # Payload editor (will be populated dynamically)
+        self.payload_scroll = QScrollArea()
+        self.payload_scroll.setWidgetResizable(True)
+        self.payload_scroll.setStyleSheet("border: 1px solid #e5e7eb; border-radius: 4px; background-color: #f9fafb;")
+
+        self.payload_widget = QWidget()
+        self.payload_layout = QVBoxLayout(self.payload_widget)
+        self.payload_scroll.setWidget(self.payload_widget)
+
+        payload_layout.addWidget(self.payload_scroll)
+
+        payload_group.setLayout(payload_layout)
+        layout.addWidget(payload_group)
+
+        # Attack Parameters
+        params_group = QGroupBox("4. Attack Parameters")
+        params_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px;
+                background-color: white;
+            }
+        """)
+        params_layout = QGridLayout()
+
+        params_layout.addWidget(QLabel("Publish Rate (Hz):"), 0, 0)
+        self.rate_spin = QSpinBox()
+        self.rate_spin.setRange(1, 100)
+        self.rate_spin.setValue(30)
+        self.rate_spin.setStyleSheet("padding: 5px;")
+        params_layout.addWidget(self.rate_spin, 0, 1)
+
+        params_layout.addWidget(QLabel("Duration (seconds):"), 1, 0)
+        self.duration_spin = QSpinBox()
+        self.duration_spin.setRange(0, 3600)
+        self.duration_spin.setValue(0)
+        self.duration_spin.setSpecialValueText("Continuous")
+        self.duration_spin.setStyleSheet("padding: 5px;")
+        params_layout.addWidget(self.duration_spin, 1, 1)
+
+        params_group.setLayout(params_layout)
+        layout.addWidget(params_group)
+
+        # Control Buttons at bottom
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        self.custom_execute_btn = QPushButton("🚀 Execute Custom Attack")
+        self.custom_execute_btn.setEnabled(False)
+        self.custom_execute_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc2626;
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12pt;
+            }
+            QPushButton:hover { background-color: #b91c1c; }
+            QPushButton:disabled {
+                background-color: #9ca3af;
+                color: #d1d5db;
+            }
+        """)
+        self.custom_execute_btn.clicked.connect(self.execute_custom_attack)
+        button_layout.addWidget(self.custom_execute_btn)
+
+        self.custom_stop_btn = QPushButton("⏹ Stop Attack")
+        self.custom_stop_btn.setEnabled(False)
+        self.custom_stop_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12pt;
+            }
+            QPushButton:hover { background-color: #047857; }
+            QPushButton:disabled {
+                background-color: #9ca3af;
+                color: #d1d5db;
+            }
+        """)
+        self.custom_stop_btn.clicked.connect(self.stop_custom_attack)
+        button_layout.addWidget(self.custom_stop_btn)
+
+        save_script_btn = QPushButton("💾 Save as Python Script")
+        save_script_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                padding: 10px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #1d4ed8; }
+        """)
+        save_script_btn.clicked.connect(self.save_custom_script)
+        button_layout.addWidget(save_script_btn)
+
+        layout.addLayout(button_layout)
+
+        # Initialize
+        self.custom_attack_process = None
+        self.payload_fields = {}
+
+        return tab
+
+    def discover_topics(self):
+        """Discover active ROS topics"""
+        try:
+            import rostopic
+            topics = rospy.get_published_topics()
+
+            self.topic_combo.clear()
+            self.available_topics = {}
+
+            for topic_name, topic_type in topics:
+                self.topic_combo.addItem(topic_name)
+                self.available_topics[topic_name] = topic_type
+
+            self.add_log(f"Discovered {len(topics)} active topics")
+
+            if topics:
+                self.topic_info_label.setText(f"Found {len(topics)} topics")
+            else:
+                self.topic_info_label.setText("No active topics found. Is simulation running?")
+                QMessageBox.warning(self, "No Topics", "No active ROS topics found. Please start the simulation first.")
+
+        except Exception as e:
+            self.add_log(f"Topic discovery error: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Failed to discover topics:\n{str(e)}\n\nMake sure ROS master is running.")
+
+    def on_topic_selected(self, topic_name):
+        """Handle topic selection"""
+        if not topic_name or topic_name not in self.available_topics:
+            return
+
+        topic_type = self.available_topics[topic_name]
+        self.topic_info_label.setText(f"Type: {topic_type}")
+
+        # Create payload fields based on message type
+        self.create_payload_fields(topic_type)
+        self.custom_execute_btn.setEnabled(True)
+
+    def create_payload_fields(self, msg_type):
+        """Create input fields based on message type"""
+        # Clear existing fields
+        for i in reversed(range(self.payload_layout.count())):
+            self.payload_layout.itemAt(i).widget().setParent(None)
+
+        self.payload_fields = {}
+
+        if 'Twist' in msg_type:
+            self.add_payload_field("linear.x", 0.0, "Linear velocity X (forward/back)")
+            self.add_payload_field("linear.y", 0.0, "Linear velocity Y (left/right)")
+            self.add_payload_field("linear.z", 0.0, "Linear velocity Z (up/down)")
+            self.add_payload_field("angular.x", 0.0, "Angular velocity X (roll)")
+            self.add_payload_field("angular.y", 0.0, "Angular velocity Y (pitch)")
+            self.add_payload_field("angular.z", 0.0, "Angular velocity Z (yaw)")
+
+        elif 'Odometry' in msg_type:
+            self.add_payload_field("pose.position.x", 0.0, "Position X")
+            self.add_payload_field("pose.position.y", 0.0, "Position Y")
+            self.add_payload_field("pose.position.z", 0.0, "Position Z")
+            self.add_payload_field("twist.linear.x", 0.0, "Velocity X")
+            self.add_payload_field("twist.linear.y", 0.0, "Velocity Y")
+            self.add_payload_field("twist.linear.z", 0.0, "Velocity Z")
+
+        elif 'Imu' in msg_type:
+            self.add_payload_field("angular_velocity.x", 0.0, "Angular velocity X")
+            self.add_payload_field("angular_velocity.y", 0.0, "Angular velocity Y")
+            self.add_payload_field("angular_velocity.z", 0.0, "Angular velocity Z")
+            self.add_payload_field("linear_acceleration.x", 0.0, "Linear acceleration X")
+            self.add_payload_field("linear_acceleration.y", 0.0, "Linear acceleration Y")
+            self.add_payload_field("linear_acceleration.z", 0.0, "Linear acceleration Z")
+
+        else:
+            label = QLabel(f"Generic message type: {msg_type}\nManual scripting required.")
+            label.setStyleSheet("color: #6b7280; padding: 10px;")
+            self.payload_layout.addWidget(label)
+
+    def add_payload_field(self, field_name, default_value, description):
+        """Add a payload configuration field"""
+        field_layout = QHBoxLayout()
+
+        label = QLabel(f"{field_name}:")
+        label.setMinimumWidth(150)
+        label.setStyleSheet("font-weight: bold;")
+        field_layout.addWidget(label)
+
+        spinbox = QDoubleSpinBox()
+        spinbox.setRange(-1000.0, 1000.0)
+        spinbox.setValue(default_value)
+        spinbox.setDecimals(4)
+        spinbox.setSingleStep(0.1)
+        spinbox.setStyleSheet("padding: 5px;")
+        field_layout.addWidget(spinbox)
+
+        help_label = QLabel(f"({description})")
+        help_label.setStyleSheet("color: #6b7280; font-size: 9pt;")
+        field_layout.addWidget(help_label)
+
+        self.payload_layout.addLayout(field_layout)
+        self.payload_fields[field_name] = spinbox
+
+    def load_template(self, template_name):
+        """Load attack template values"""
+        if template_name == "Stop Command (Zero Velocity)":
+            self.set_payload_values({"linear.x": 0.0, "linear.y": 0.0, "linear.z": 0.0,
+                                    "angular.x": 0.0, "angular.y": 0.0, "angular.z": 0.0})
+        elif template_name == "Spin Attack (High Angular)":
+            self.set_payload_values({"linear.x": 0.0, "angular.z": 2.0})
+        elif template_name == "Reverse Motion (Negative Linear)":
+            self.set_payload_values({"linear.x": -1.0, "angular.z": 0.0})
+        elif template_name == "Max Speed (Dangerous Fast)":
+            self.set_payload_values({"linear.x": 10.0, "angular.z": 0.0})
+        elif template_name == "Position Spoof (Teleport)":
+            self.set_payload_values({"pose.position.x": 100.0, "pose.position.y": 100.0})
+        elif template_name == "Sensor Noise (Random Values)":
+            import random
+            values = {field: random.uniform(-5, 5) for field in self.payload_fields.keys()}
+            self.set_payload_values(values)
+        elif template_name == "Freeze Values (Constant)":
+            values = {field: 0.5 for field in self.payload_fields.keys()}
+            self.set_payload_values(values)
+
+    def set_payload_values(self, values):
+        """Set payload field values from dictionary"""
+        for field_name, value in values.items():
+            if field_name in self.payload_fields:
+                self.payload_fields[field_name].setValue(value)
+
+    def generate_attack_script(self):
+        """Generate attack script content"""
+        topic = self.topic_combo.currentText()
+        rate = self.rate_spin.value()
+        duration = self.duration_spin.value()
+
+        script_lines = []
+        script_lines.append("#!/usr/bin/env python3")
+        script_lines.append("import rospy")
+
+        topic_type = self.available_topics.get(topic, "Unknown")
+        if 'Twist' in topic_type:
+            script_lines.append("from geometry_msgs.msg import Twist")
+            script_lines.append("")
+            script_lines.append("rospy.init_node('custom_attacker', anonymous=True)")
+            script_lines.append(f"pub = rospy.Publisher('{topic}', Twist, queue_size=10)")
+            script_lines.append(f"rate = rospy.Rate({rate})")
+            script_lines.append("")
+            script_lines.append("msg = Twist()")
+            for field, spinbox in self.payload_fields.items():
+                script_lines.append(f"msg.{field} = {spinbox.value()}")
+            script_lines.append("")
+            if duration > 0:
+                script_lines.append(f"# Run for {duration} seconds")
+                script_lines.append(f"start_time = rospy.Time.now()")
+                script_lines.append("while not rospy.is_shutdown():")
+                script_lines.append(f"    if (rospy.Time.now() - start_time).to_sec() > {duration}:")
+                script_lines.append("        break")
+                script_lines.append("    pub.publish(msg)")
+                script_lines.append("    rate.sleep()")
+            else:
+                script_lines.append("# Run continuously")
+                script_lines.append("while not rospy.is_shutdown():")
+                script_lines.append("    pub.publish(msg)")
+                script_lines.append("    rate.sleep()")
+
+        return "\n".join(script_lines)
+
+    def execute_custom_attack(self):
+        """Execute the custom attack"""
+        topic = self.topic_combo.currentText()
+        if not topic:
+            QMessageBox.warning(self, "No Topic", "Please select a topic first")
+            return
+
+        self.add_log(f"Executing custom attack on {topic}")
+
+        # Generate attack script
+        script_content = self.generate_attack_script()
+        script_path = "/tmp/custom_attack.py"
+
+        try:
+            with open(script_path, 'w') as f:
+                f.write(script_content)
+
+            os.chmod(script_path, 0o755)
+
+            # Launch attack
+            self.custom_attack_process = subprocess.Popen(
+                ['python3', script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            self.custom_execute_btn.setEnabled(False)
+            self.custom_stop_btn.setEnabled(True)
+            self.add_log(f"Custom attack started (PID: {self.custom_attack_process.pid})")
+
+        except Exception as e:
+            self.add_log(f"Failed to execute custom attack: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to execute attack:\n{str(e)}")
+
+    def stop_custom_attack(self):
+        """Stop the custom attack"""
+        if self.custom_attack_process and self.custom_attack_process.poll() is None:
+            self.custom_attack_process.terminate()
+            self.custom_attack_process.wait(timeout=2)
+            self.add_log("Custom attack stopped")
+
+        self.custom_execute_btn.setEnabled(True)
+        self.custom_stop_btn.setEnabled(False)
+
+    def save_custom_script(self):
+        """Save custom attack as Python script"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Attack Script",
+            f"custom_attack_{datetime.now().strftime('%Y%m%d_%H%M%S')}.py",
+            "Python Files (*.py)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'w') as f:
+                    f.write(self.preview_text.toPlainText())
+                os.chmod(file_path, 0o755)
+                self.add_log(f"Attack script saved to: {file_path}")
+                QMessageBox.information(self, "Success", f"Script saved successfully to:\n{file_path}")
+            except Exception as e:
+                self.add_log(f"Failed to save script: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to save script:\n{str(e)}")
     
     def create_analysis_tab(self):
         """Create analysis tab with bag loading and topic-based analysis"""
