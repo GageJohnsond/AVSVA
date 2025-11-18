@@ -62,40 +62,10 @@ python3 avsva_app.py
 4. **Parameter Manipulation** - Modifies runtime parameters
 5. **IMU Spoofing** - Injects false sensor data
 
-## Project Structure
-
-```
-avsva_project/
-├── avsva_app.py                   # Main application
-├── simulation_scripts/            # Simulation launcher and auto-drive
-├── attack_scripts/                # Attack implementations
-├── recorded_bags/                 # Auto-created for recordings
-└── README.md
-```
-
-## Troubleshooting
-
-**Simulation won't start:**
-```bash
-killall -9 roscore gzserver gzclient rviz
-source /opt/ros/noetic/setup.bash
-```
-
-**Attacks don't work:**
-- Ensure simulation is running first
-- Check: `rostopic list`
-
-## Safety
-
-⚠️ Educational/research use only. Never deploy on production robots.
-
 ## Authors
 
-Raider Security Team
+Raider Security Team - Gage Johnson, Nick Sanchez, Tyler Bowen, Reid Layne
 Texas Tech University Computer Science
-Senior Capstone Project 2024-2025
+Senior Capstone Project 2025
 In partnership with Army Research Lab
 
----
-
-*For demonstration and educational purposes only.*
