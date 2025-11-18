@@ -1317,11 +1317,15 @@ while not rospy.is_shutdown():
     def create_custom_injection_tab(self):
         """Create custom injection interface for security researchers"""
         tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        main_layout = QVBoxLayout(tab)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
-        # Topic Selection
+        # Quadrant Grid Layout (2x2)
+        quadrant_layout = QGridLayout()
+        quadrant_layout.setSpacing(10)
+
+        # TOP LEFT QUADRANT - Topic Selection
         topic_group = QGroupBox("1. Select Target Topic")
         topic_group.setStyleSheet("""
             QGroupBox {
@@ -1364,11 +1368,12 @@ while not rospy.is_shutdown():
         self.topic_info_label = QLabel("No topic selected")
         self.topic_info_label.setStyleSheet("color: #6b7280; font-style: italic; padding: 5px;")
         topic_layout.addWidget(self.topic_info_label)
+        topic_layout.addStretch()
 
         topic_group.setLayout(topic_layout)
-        layout.addWidget(topic_group)
+        quadrant_layout.addWidget(topic_group, 0, 0)
 
-        # Message Type & Template
+        # TOP RIGHT QUADRANT - Attack Template
         template_group = QGroupBox("2. Attack Template")
         template_group.setStyleSheet("""
             QGroupBox {
@@ -1406,11 +1411,12 @@ while not rospy.is_shutdown():
         """)
         self.template_combo.currentTextChanged.connect(self.load_template)
         template_layout.addWidget(self.template_combo)
+        template_layout.addStretch()
 
         template_group.setLayout(template_layout)
-        layout.addWidget(template_group)
+        quadrant_layout.addWidget(template_group, 0, 1)
 
-        # Payload Configuration
+        # BOTTOM LEFT QUADRANT - Payload Configuration
         payload_group = QGroupBox("3. Configure Payload")
         payload_group.setStyleSheet("""
             QGroupBox {
@@ -1436,9 +1442,9 @@ while not rospy.is_shutdown():
         payload_layout.addWidget(self.payload_scroll)
 
         payload_group.setLayout(payload_layout)
-        layout.addWidget(payload_group)
+        quadrant_layout.addWidget(payload_group, 1, 0)
 
-        # Attack Parameters
+        # BOTTOM RIGHT QUADRANT - Attack Parameters
         params_group = QGroupBox("4. Attack Parameters")
         params_group.setStyleSheet("""
             QGroupBox {
@@ -1467,8 +1473,13 @@ while not rospy.is_shutdown():
         self.duration_spin.setStyleSheet("padding: 5px;")
         params_layout.addWidget(self.duration_spin, 1, 1)
 
+        params_layout.setRowStretch(2, 1)  # Add stretch to push content to top
+
         params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
+        quadrant_layout.addWidget(params_group, 1, 1)
+
+        # Add quadrant grid to main layout
+        main_layout.addLayout(quadrant_layout)
 
         # Control Buttons at bottom
         button_layout = QHBoxLayout()
@@ -1528,7 +1539,7 @@ while not rospy.is_shutdown():
         save_script_btn.clicked.connect(self.save_custom_script)
         button_layout.addWidget(save_script_btn)
 
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
 
         # Initialize
         self.custom_attack_process = None
